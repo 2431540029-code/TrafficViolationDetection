@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# PyCharm
+.idea/
+
+# Training outputs
+runs/
+wandb/
+
+# Datasets
+dataset/
+dataset_cargo/
+
+# Videos
+videos/
+
+# YOLO model weights
+*.pt
+*.onnx
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# OS
+.DS_Store
+Thumbs.db
+# Violation logs
+violations.csv
+violations/
