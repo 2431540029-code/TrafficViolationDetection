@@ -39,3 +39,18 @@ Thumbs.db
 # Violation logs
 violations.csv
 violations/
+
+
+# Datasets lớn
+dataset_cargo_filtered/
+dataset_v02_yolo/
+dataset_v02/images/
+dataset_v02/results/
+
+# Ket qua train va checkpoint
+runs/
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
