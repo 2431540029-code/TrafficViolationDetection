@@ -1,9 +1,19 @@
 
+from pathlib import Path
 from ultralytics import YOLO
 
-# Load model vừa tải từ GitHub
-model = YOLO("yolov8s.pt")
+BASE_DIR = Path(__file__).resolve().parent
 
-print("Danh sach lop mo hinh co the nhan dien:")
-for class_id, class_name in model.names.items():
-    print(f"ID {class_id}: {class_name}")
+model_path = (
+    BASE_DIR
+    / "runs"
+    / "detect"
+    / "v02_trippling"
+    / "weights"
+    / "best.pt"
+)
+
+model = YOLO(str(model_path))
+
+print("Ten cac lop trong model:")
+print(model.names)

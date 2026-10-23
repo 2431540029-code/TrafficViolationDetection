@@ -4,135 +4,77 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-
-# ==========================================
-# 1. CAU HINH
-# ==========================================
-
 BASE_DIR = Path(__file__).resolve().parent
 
 IMAGE_DIR = BASE_DIR / "dataset_v02" / "images"
 RESULT_DIR = BASE_DIR / "dataset_v02" / "results"
+MODEL_PATH = (
+    BASE_DIR / "runs" / "detect" / "v02_trippling"
+    / "weights" / "best.pt"
+)
 
-MODEL_PATH = "yolo11n.pt"
 CONFIDENCE = 0.35
 PASSENGER_LIMIT = 2
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+# Kich thuoc toi da cua cua so hien thi
+MAX_WIDTH = 900
+MAX_HEIGHT = 650
+
+WINDOW_NAME = "Kiem thu nhan dien xe cho qua so nguoi"
 
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-
-# ==========================================
-# 2. KHOI TAO MO HINH YOLO
-# ==========================================
-
-model = YOLO(MODEL_PATH)
-
-
-# ==========================================
-# 3. HAM UOC LUONG NGUOI THUOC XE NAO
-# ==========================================
-
-def person_bike_score(person, bike):
-    """
-    Uoc luong kha nang nguoi dang ngoi tren xe.
-
-    Luu y:
-    Day la heuristic dua tren vi tri khung hinh,
-    khong phai mo hinh chuyen biet dem nguoi tren xe.
-    """
-
-    px1, py1, px2, py2 = person
-    bx1, by1, bx2, by2 = bike
-
-    pw = max(1, px2 - px1)
-    ph = max(1, py2 - py1)
-    bw = max(1, bx2 - bx1)
-    bh = max(1, by2 - by1)
-
-    person_cx = (px1 + px2) / 2
-    person_bottom = py2
-
-    bike_cx = (bx1 + bx2) / 2
-
-    # Kiem tra nguoi co nam gan chieu ngang cua xe khong
-    horizontal_ratio = (person_cx - bx1) / bw
-
-    if horizontal_ratio < -0.10 or horizontal_ratio > 1.10:
-        return 0.0
-
-    # Vung uoc luong nguoi ngoi tren xe.
-    # Vung nay mo rong len tren khung xe vi nguoi cao hon xe.
-    seat_top = by1 - 0.85 * bh
-    seat_bottom = by1 + 0.45 * bh
-
-    if person_bottom < seat_top or py1 > seat_bottom:
-        return 0.0
-
-    # Diem gan tam xe theo chieu ngang
-    horizontal_score = max(
-        0.0,
-        1.0 - abs(person_cx - bike_cx) / (bw * 0.65)
+# =========================
+# 1. KIEM TRA DUONG DAN
+# =========================
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(
+        f"Khong tim thay model:\n{MODEL_PATH}"
     )
-
-    # Diem gan vung ngoi theo chieu doc
-    seat_center_y = by1 - 0.15 * bh
-    vertical_distance = abs(person_bottom - seat_center_y)
-
-    vertical_score = max(
-        0.0,
-        1.0 - vertical_distance / (bh + ph * 0.25)
-    )
-
-    # Ket hop hai diem
-    score = (
-        0.55 * horizontal_score
-        + 0.45 * vertical_score
-    )
-
-    return score
-
-
-def assign_people_to_motorcycles(people, motorcycles):
-    """
-    Gan moi nguoi vao toi da mot xe may.
-
-    Nguoi khong dat nguong se khong duoc gan.
-    """
-
-    assigned = [[] for _ in motorcycles]
-
-    for person_index, person in enumerate(people):
-        best_bike = -1
-        best_score = 0.0
-
-        for bike_index, bike in enumerate(motorcycles):
-            score = person_bike_score(person, bike)
-
-            if score > best_score:
-                best_score = score
-                best_bike = bike_index
-
-        if best_bike >= 0 and best_score >= 0.35:
-            assigned[best_bike].append(person_index)
-
-    return assigned
-
-
-# ==========================================
-# 4. KIEM TRA THU MUC ANH
-# ==========================================
 
 if not IMAGE_DIR.exists():
-    print(f"Khong tim thay thu muc anh: {IMAGE_DIR}")
-    raise SystemExit
+    raise FileNotFoundError(
+        f"Khong tim thay thu muc anh:\n{IMAGE_DIR}"
+    )
 
+# =========================
+# 2. TAI MODEL YOLO
+# =========================
+model = YOLO(str(MODEL_PATH))
+
+names = model.names
+if isinstance(names, list):
+    names = dict(enumerate(names))
+
+class_ids = {
+    str(name).strip().lower(): int(class_id)
+    for class_id, name in names.items()
+}
+
+print("Cac lop cua model:", names)
+
+required = ["bike", "rider", "trippling"]
+missing = [name for name in required if name not in class_ids]
+
+if missing:
+    raise ValueError(
+        f"Model khong co cac lop {missing}.\n"
+        f"Cac lop hien tai: {names}"
+    )
+
+BIKE_ID = class_ids["bike"]
+RIDER_ID = class_ids["rider"]
+TRIPPLING_ID = class_ids["trippling"]
+
+# =========================
+# 3. LAY DANH SACH ANH
+# =========================
 images = sorted(
-    path
-    for path in IMAGE_DIR.iterdir()
-    if path.is_file()
-    and path.suffix.lower() in IMAGE_EXTENSIONS
+    p for p in IMAGE_DIR.iterdir()
+    if p.is_file()
+    and p.suffix.lower() in IMAGE_EXTENSIONS
+    and not p.stem.endswith("_result")
 )
 
 if not images:
@@ -140,13 +82,37 @@ if not images:
     raise SystemExit
 
 print(f"Tim thay {len(images)} anh.")
-print("Bat dau nhan dien...\n")
+print("Nhan phim bat ky de xem anh tiep theo.")
+print("Nhan ESC de thoat.")
+
+# =========================
+# 4. HAM THU NHO ANH HIEN THI
+# =========================
+def resize_for_display(image):
+    height, width = image.shape[:2]
+
+    scale = min(
+        MAX_WIDTH / width,
+        MAX_HEIGHT / height,
+        1.0
+    )
+
+    new_width = max(1, int(width * scale))
+    new_height = max(1, int(height * scale))
+
+    if scale < 1.0:
+        image = cv2.resize(
+            image,
+            (new_width, new_height),
+            interpolation=cv2.INTER_AREA
+        )
+
+    return image
 
 
-# ==========================================
-# 5. NHAN DIEN TUNG ANH
-# ==========================================
-
+# =========================
+# 5. XU LY TUNG ANH
+# =========================
 for image_path in images:
 
     image = cv2.imread(str(image_path))
@@ -155,124 +121,147 @@ for image_path in images:
         print(f"Khong doc duoc anh: {image_path.name}")
         continue
 
-    # Chi nhan dien person va motorcycle
+    # Nhan dien tren anh goc
     result = model.predict(
         source=image,
-        classes=[0, 3],
+        classes=[BIKE_ID, RIDER_ID, TRIPPLING_ID],
         conf=CONFIDENCE,
+        imgsz=640,
         verbose=False
     )[0]
 
-    people = []
-    motorcycles = []
+    bikes = []
+    riders = []
+    tripplings = []
 
     if result.boxes is not None:
         for box in result.boxes:
-
             class_id = int(box.cls[0].item())
+            confidence = float(box.conf[0].item())
 
             coords = tuple(
-                int(value)
-                for value in box.xyxy[0].tolist()
+                int(v) for v in box.xyxy[0].tolist()
             )
 
-            if class_id == 0:
-                people.append(coords)
+            item = (coords, confidence)
 
-            elif class_id == 3:
-                motorcycles.append(coords)
+            if class_id == BIKE_ID:
+                bikes.append(item)
+            elif class_id == RIDER_ID:
+                riders.append(item)
+            elif class_id == TRIPPLING_ID:
+                tripplings.append(item)
 
-    # Tao anh de ve ket qua
     output = image.copy()
 
-    # Ve khung nguoi mau xanh duong
-    for person in people:
-        x1, y1, x2, y2 = person
-
+    # -------------------------
+    # 5.1 VE KHUNG XANH DUONG CHO RIDER
+    # -------------------------
+    for (x1, y1, x2, y2), conf in riders:
         cv2.rectangle(
             output,
             (x1, y1),
             (x2, y2),
-            (255, 0, 0),
+            (255, 180, 0),
             2
-        )
-
-    # Gan nguoi vao xe may
-    assigned_people = assign_people_to_motorcycles(
-        people,
-        motorcycles
-    )
-
-    # ======================================
-    # 6. VE KHUNG XE VA HIEN THI SO NGUOI
-    # ======================================
-
-    for bike_index, bike in enumerate(motorcycles):
-
-        x1, y1, x2, y2 = bike
-        count = len(assigned_people[bike_index])
-
-        if count > PASSENGER_LIMIT:
-            color = (0, 0, 255)
-            label = f"NGHI VI PHAM: {count} nguoi"
-
-        else:
-            color = (0, 200, 0)
-            label = f"Uoc tinh: {count} nguoi"
-
-        cv2.rectangle(
-            output,
-            (x1, y1),
-            (x2, y2),
-            color,
-            3
-        )
-
-        # Nen cho chu de de doc
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.60
-        thickness = 2
-
-        (text_w, text_h), baseline = cv2.getTextSize(
-            label,
-            font,
-            font_scale,
-            thickness
-        )
-
-        label_y = max(text_h + 8, y1 - 8)
-
-        cv2.rectangle(
-            output,
-            (x1, label_y - text_h - 6),
-            (min(output.shape[1] - 1, x1 + text_w + 8), label_y + baseline),
-            color,
-            -1
         )
 
         cv2.putText(
             output,
-            label,
-            (x1 + 4, label_y),
-            font,
-            font_scale,
-            (255, 255, 255),
-            thickness
+            f"Rider {conf:.2f}",
+            (x1, max(22, y1 - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 180, 0),
+            2,
+            cv2.LINE_AA
         )
 
-    # ======================================
-    # 7. HIEN THI TONG SO DOI TUONG
-    # ======================================
+    # -------------------------
+    # 5.2 KHONG VE KHUNG DO RIENG CHO TRIPPLING
+    # Trippling van duoc thong ke o phia tren.
+    # Mau khung xe se dua vao so Rider dem duoc.
+    # -------------------------
 
+    total_violations = 0
+
+    # -------------------------
+    # 5.3 DEM RIDER TRONG VUNG CUA TUNG XE
+    # -------------------------
+    for bike, bike_conf in bikes:
+        bx1, by1, bx2, by2 = bike
+
+        bw = max(1, bx2 - bx1)
+        bh = max(1, by2 - by1)
+
+        # Mo rong vung dem len phia tren xe
+        rx1 = bx1 - 0.15 * bw
+        rx2 = bx2 + 0.15 * bw
+        ry1 = by1 - 1.5 * bh
+        ry2 = by2 + 0.05 * bh
+
+        # Dem cac Rider co tam khung nam trong vung xe
+        count = 0
+
+        for (px1, py1, px2, py2), _ in riders:
+            pcx = (px1 + px2) / 2
+            pcy = (py1 + py2) / 2
+
+            if (
+                rx1 <= pcx <= rx2
+                and ry1 <= pcy <= ry2
+            ):
+                count += 1
+
+        # Chi ket luan vi pham dua tren so Rider
+        violation = count > PASSENGER_LIMIT
+
+        if violation:
+            color = (0, 0, 255)  # Do
+            label = f"VI PHAM: CHO QUA SO NGUOI ({count})"
+            total_violations += 1
+        else:
+            color = (0, 200, 0)  # Xanh la
+            label = None
+
+        # Ve khung bao quanh xe
+        cv2.rectangle(
+            output,
+            (bx1, by1),
+            (bx2, by2),
+            color,
+            4
+        )
+
+        # Chi hien chu vi pham khi co tu 3 Rider tro len
+        if label is not None:
+            text_x = max(5, bx1)
+            text_y = max(55, by1 - 10)
+
+            cv2.putText(
+                output,
+                label,
+                (text_x, text_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 0, 255),
+                2,
+                cv2.LINE_AA
+            )
+
+    # -------------------------
+    # 5.4 THANH THONG KE TONG
+    # -------------------------
     summary = (
-        f"Detected people: {len(people)} | "
-        f"Motorcycles: {len(motorcycles)}"
+        f"Bikes: {len(bikes)} | "
+        f"Riders: {len(riders)} | "
+        f"Trippling: {len(tripplings)}"
     )
 
     cv2.rectangle(
         output,
         (0, 0),
-        (output.shape[1], 38),
+        (output.shape[1], 40),
         (30, 30, 30),
         -1
     )
@@ -280,61 +269,47 @@ for image_path in images:
     cv2.putText(
         output,
         summary,
-        (10, 26),
+        (10, 28),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.65,
+        0.7,
         (255, 255, 255),
-        2
+        2,
+        cv2.LINE_AA
     )
 
-    # ======================================
-    # 8. LUU ANH KET QUA
-    # ======================================
-
+    # -------------------------
+    # 5.5 LUU ANH KET QUA
+    # -------------------------
     save_path = RESULT_DIR / f"{image_path.stem}_result.jpg"
 
-    saved = cv2.imwrite(str(save_path), output)
-
-    # ======================================
-    # 9. IN KET QUA RA TERMINAL
-    # ======================================
-
-    print(f"Anh: {image_path.name}")
-    print(f"Tong so nguoi phat hien: {len(people)}")
-    print(f"Tong so xe may phat hien: {len(motorcycles)}")
-
-    for index, assigned in enumerate(assigned_people, start=1):
-        print(
-            f"Xe {index}: uoc tinh {len(assigned)} nguoi"
-        )
-
-    if saved:
-        print(f"Da luu anh ket qua: {save_path}")
+    if cv2.imwrite(str(save_path), output):
+        print(f"\nAnh: {image_path.name}")
+        print(f"So Bike: {len(bikes)}")
+        print(f"So Rider: {len(riders)}")
+        print(f"So Trippling: {len(tripplings)}")
+        print(f"So xe bi danh dau vi pham: {total_violations}")
+        print(f"Da luu ket qua: {save_path}")
     else:
-        print(f"Loi khi luu anh: {save_path}")
+        print(f"Khong luu duoc anh: {save_path}")
 
-    print("-" * 45)
+    # -------------------------
+    # 5.6 HIEN THI ANH DA THU NHO
+    # -------------------------
+    display_image = resize_for_display(output)
 
-    # ======================================
-    # 10. HIEN THI ANH BANG OPENCV
-    # ======================================
-
-    window_title = (
-        f"Nhan dien xe cho qua so nguoi - "
-        f"{image_path.name}"
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(
+        WINDOW_NAME,
+        display_image.shape[1],
+        display_image.shape[0]
     )
+    cv2.imshow(WINDOW_NAME, display_image)
 
-    cv2.imshow(window_title, output)
-
-    # Nhan phim bat ky de xem anh tiep theo
-    # Nhan ESC de dung chuong trinh
     key = cv2.waitKey(0)
-
     cv2.destroyAllWindows()
 
     if key == 27:
-        print("Da dung theo yeu cau.")
+        print("Da dung chuong trinh.")
         break
-
 
 print("\nDa ket thuc chuong trinh.")
