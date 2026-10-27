@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 IMAGE_DIR = BASE_DIR / "dataset_v02" / "images"
 RESULT_DIR = BASE_DIR / "dataset_v02" / "results"

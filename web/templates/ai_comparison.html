@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101923">
+  <title>So sánh hiệu năng AI | Traffic Vision</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='6') }}">
+</head>
+<body class="comparison-page">
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}" aria-label="Traffic Vision trang chủ">
+      <span class="brand-mark">TV</span>
+      <span>TRAFFIC<span class="brand-accent">VISION</span></span>
+    </a>
+    <nav class="topbar-actions" aria-label="Điều hướng chính">
+      <a class="topbar-link" href="{{ url_for('index') }}">Trang nhận diện</a>
+      <span class="local-badge"><span class="live-dot"></span> HỆ THỐNG CỤC BỘ</span>
+    </nav>
+  </header>
+
+  <main class="page-shell comparison-shell">
+    <section class="comparison-hero">
+      <p class="eyebrow">AI BENCHMARK · OBJECT DETECTION</p>
+      <h1>So sánh hiệu năng <span>AI</span></h1>
+      <p class="hero-description">
+        Xem các checkpoint đã xác minh và đánh giá chúng trên bộ dữ liệu có nhãn
+        của từng bài toán. Kết quả được lưu cùng cấu hình và thiết bị đo.
+      </p>
+    </section>
+
+    <div class="comparison-warning" role="note">
+      <strong>Lưu ý khi đọc kết quả</strong>
+      <span>
+        Mỗi bài toán dùng bộ dữ liệu và lớp khác nhau; chỉ so sánh các mô hình
+        cùng bài toán, cùng tập dữ liệu và cùng thiết lập. Số liệu validation
+        trong lịch sử huấn luyện không phải kết quả test độc lập.
+      </span>
+    </div>
+
+    <section class="comparison-config panel-card" aria-labelledby="config-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">CẤU HÌNH THỬ NGHIỆM</p>
+          <h2 id="config-title">Thiết lập đánh giá</h2>
+        </div>
+        <span class="file-limit">YOLOv8s · YOLO11n · YOLO26n</span>
+      </div>
+
+      <div class="config-grid">
+        <label class="config-field">
+          <span>Bài toán</span>
+          <select id="task-select">
+            <option value="helmet">Không đội mũ bảo hiểm</option>
+            <option value="passenger">Xe máy chở quá số người</option>
+            <option value="cargo" selected>Hàng hóa cồng kềnh</option>
+          </select>
+        </label>
+        <label class="config-field">
+          <span>Tập dữ liệu đánh giá</span>
+          <select id="split-select">
+            <option value="val">Validation</option>
+            <option value="test">Test độc lập</option>
+          </select>
+        </label>
+        <label class="config-field">
+          <span>Confidence khi đánh giá và đo tốc độ</span>
+          <span class="range-control">
+            <input id="confidence-input" type="range" min="0.05" max="0.95" step="0.05" value="0.25">
+            <output id="confidence-value" for="confidence-input">25%</output>
+          </span>
+        </label>
+        <label class="config-field">
+          <span>Số lượt đo suy luận</span>
+          <input id="repeats-input" type="number" min="1" max="5" step="1" value="3">
+        </label>
+      </div>
+
+      <div class="model-picker">
+        <div class="model-picker-heading">
+          <h3>Mô hình có thể đánh giá</h3>
+          <span id="model-count" class="file-limit"></span>
+        </div>
+        <div id="model-options" class="model-options" role="group" aria-label="Chọn mô hình">
+          <p class="history-empty">Đang tải danh sách mô hình…</p>
+        </div>
+        <p id="model-availability-note" class="table-note"></p>
+      </div>
+
+      <div id="selected-dataset-info" class="dataset-info" aria-live="polite"></div>
+      <div class="config-actions">
+        <p class="privacy-note">Chỉ dùng checkpoint và tập dữ liệu có sẵn trong dự án.</p>
+        <button class="button button-primary" id="run-comparison" type="button">
+          <span>Chạy so sánh</span><span aria-hidden="true">→</span>
+        </button>
+      </div>
+      <div id="comparison-loading" class="comparison-loading" role="status" hidden>
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <span>Đang đánh giá mô hình và đo suy luận trên tập ảnh đã chọn…</span>
+      </div>
+      <div id="comparison-error" class="alert" role="alert" hidden></div>
+    </section>
+
+    <section class="benchmark-results" aria-labelledby="results-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">KẾT QUẢ</p>
+          <h2 id="results-title">Hiệu năng mô hình</h2>
+        </div>
+        <span id="results-context" class="file-limit">Chọn bài toán để xem số liệu hiện có</span>
+      </div>
+
+      <div id="benchmark-summary" class="benchmark-summary"></div>
+      <div id="comparison-charts" class="comparison-charts">
+        <article class="chart-card"><h3>Precision</h3><div id="chart-precision" class="chart-body"></div></article>
+        <article class="chart-card"><h3>Recall</h3><div id="chart-recall" class="chart-body"></div></article>
+        <article class="chart-card"><h3>mAP50 và mAP50–95</h3><div id="chart-map" class="chart-body"></div></article>
+        <article class="chart-card"><h3>Thời gian suy luận trung bình</h3><div id="chart-latency" class="chart-body"></div></article>
+        <article class="chart-card"><h3>Kích thước checkpoint</h3><div id="chart-size" class="chart-body"></div></article>
+      </div>
+
+      <div class="panel-card table-panel">
+        <div class="comparison-heading">
+          <div>
+            <h3>Bảng kết quả chi tiết</h3>
+            <p>Metric hiển thị theo phần trăm; tốc độ tính bằng ms/ảnh.</p>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="comparison-table results-table">
+            <thead>
+              <tr>
+                <th scope="col">Tên mô hình</th>
+                <th scope="col">Nhiệm vụ</th>
+                <th scope="col">Precision</th>
+                <th scope="col">Recall</th>
+                <th scope="col">mAP50</th>
+                <th scope="col">mAP50–95</th>
+                <th scope="col">ms/ảnh</th>
+                <th scope="col">Kích thước (MB)</th>
+                <th scope="col">Ảnh / đối tượng</th>
+                <th scope="col">Tập đánh giá</th>
+                <th scope="col">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="results-table-body">
+              <tr><td colspan="11" class="not-evaluated">Chưa có kết quả đánh giá.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <article id="results-commentary" class="commentary-card" aria-live="polite">
+        <h3>Nhận xét kết quả</h3>
+        <p>Chọn bài toán để xem các số liệu validation đã có hoặc chạy đánh giá mới.</p>
+      </article>
+    </section>
+
+    <section class="panel-card evaluation-history" aria-labelledby="history-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LỊCH SỬ ĐÁNH GIÁ</p>
+          <h2 id="history-title">Các lượt đã lưu</h2>
+        </div>
+        <span class="file-limit">LƯU TRONG CƠ SỞ DỮ LIỆU CỤC BỘ</span>
+      </div>
+      <div class="table-scroll">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th scope="col">Thời điểm</th>
+              <th scope="col">Mô hình</th>
+              <th scope="col">Tập</th>
+              <th scope="col">mAP50</th>
+              <th scope="col">mAP50–95</th>
+              <th scope="col">ms/ảnh</th>
+              <th scope="col">Thiết bị</th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body">
+            <tr><td colspan="7" class="not-evaluated">Chưa có lượt đánh giá được lưu.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>TRAFFIC<span class="brand-accent">VISION</span></span>
+    <span>Đánh giá trong phạm vi dữ liệu đã gán nhãn của dự án</span>
+  </footer>
+
+  <script id="model-catalog" type="application/json">{{ catalog|tojson }}</script>
+  <script src="{{ url_for('static', filename='comparison.js', v='3') }}" defer></script>
+</body>
+</html>

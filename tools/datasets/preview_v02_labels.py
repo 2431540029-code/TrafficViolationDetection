@@ -2,7 +2,7 @@
 import cv2
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent / "dataset_v02_yolo"
+BASE_DIR = Path(__file__).resolve().parents[2] / "dataset_v02_yolo"
 IMAGE_DIR = BASE_DIR / "images" / "train"
 LABEL_DIR = BASE_DIR / "labels" / "train"
 OUTPUT_DIR = BASE_DIR / "preview_trippling"

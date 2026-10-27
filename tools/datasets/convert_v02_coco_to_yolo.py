@@ -10,7 +10,7 @@ SOURCE_DIR = Path(
 )
 
 # Tao dataset YOLO rieng, khong sua du lieu goc
-OUTPUT_DIR = Path(__file__).resolve().parent / "dataset_v02_yolo"
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / "dataset_v02_yolo"
 
 # Bo qua lop 0 vi khong co annotation
 # Remap ID COCO sang ID YOLO lien tuc tu 0 den 4

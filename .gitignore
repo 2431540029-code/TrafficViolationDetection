@@ -38,7 +38,9 @@ videos/
 Thumbs.db
 # Violation logs
 violations.csv
+violations_detected.csv
 violations/
+web_results/
 
 
 # Datasets lớn

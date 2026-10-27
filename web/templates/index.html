@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101923">
+  <title>Traffic Vision | Nhận diện vi phạm giao thông</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='5') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}" aria-label="Traffic Vision trang chủ">
+      <span class="brand-mark">TV</span>
+      <span>TRAFFIC<span class="brand-accent">VISION</span></span>
+    </a>
+    <nav class="topbar-actions" aria-label="Điều hướng chính">
+      <a class="topbar-link" href="{{ url_for('ai_comparison') }}">So sánh hiệu năng AI</a>
+      <span class="local-badge"><span class="live-dot"></span> HỆ THỐNG CỤC BỘ</span>
+    </nav>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">THỊ GIÁC MÁY TÍNH · YOLO</p>
+        <h1>Nhận diện vi phạm<br><span>giao thông</span></h1>
+        <p class="hero-description">
+          Tải ảnh phương tiện để phân tích mũ bảo hiểm, số người trên xe và hàng hóa cồng kềnh.
+        </p>
+        <a class="hero-link" href="#upload">Bắt đầu phân tích <span>↓</span></a>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="visual-orbit orbit-one"></div>
+        <div class="visual-orbit orbit-two"></div>
+        <div class="visual-center">◉</div>
+        <div class="scan-line"></div>
+        <span class="visual-tag tag-top">YOLO · VISION</span>
+        <span class="visual-tag tag-bottom">TRAFFIC SAFETY SYSTEM</span>
+      </div>
+    </section>
+
+    <section class="feature-grid" aria-label="Các chức năng nhận diện">
+      <article class="feature-card">
+        <span class="feature-icon helmet-icon">01</span>
+        <div><h2>Mũ bảo hiểm</h2><p>Đội mũ hoặc không đội mũ</p></div>
+        <span class="feature-status {% if models.helmet %}status-ready{% else %}status-off{% endif %}">
+          {{ "SẴN SÀNG" if models.helmet else "THIẾU MODEL" }}
+        </span>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon passenger-icon">02</span>
+        <div><h2>Quá số người</h2><p>Phân tích Rider và Trippling</p></div>
+        <span class="feature-status {% if models.passenger %}status-ready{% else %}status-off{% endif %}">
+          {{ "SẴN SÀNG" if models.passenger else "THIẾU MODEL" }}
+        </span>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon cargo-icon">03</span>
+        <div><h2>Hàng cồng kềnh</h2><p>Phát hiện theo model bulky_cargo</p></div>
+        <span class="feature-status {% if models.cargo %}status-ready{% else %}status-off{% endif %}">
+          {{ "SẴN SÀNG" if models.cargo else "CHƯA CÓ MODEL" }}
+        </span>
+      </article>
+    </section>
+
+    <section class="model-section" id="models">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">MÔ HÌNH AI</p>
+          <h2>Các mô hình đang sử dụng</h2>
+        </div>
+      </div>
+
+      <div class="comparison-card">
+        <div class="comparison-heading">
+          <div><h3>Mô hình AI theo từng loại vi phạm</h3>
+            <p>Các mô hình và bước xử lý đang được sử dụng trong hệ thống.</p></div>
+        </div>
+        <div class="table-scroll">
+          <table class="comparison-table" id="violation-models-table">
+            <thead>
+              <tr>
+                <th scope="col">Bài toán</th>
+                <th scope="col">Mô hình / công nghệ</th>
+                <th scope="col">Lớp nhận diện</th>
+                <th scope="col">Cách xử lý</th>
+                <th scope="col">Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Mũ bảo hiểm</th>
+                <td>YOLO đã huấn luyện</td>
+                <td><code>helmet</code>, <code>no_helmet</code></td>
+                <td>Phát hiện trạng thái đội hoặc không đội mũ trong ảnh.</td>
+                <td><span class="table-status status-active">Đang tích hợp</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Chở quá số người</th>
+                <td>YOLO11n fine-tune</td>
+                <td><code>bike</code>, <code>rider</code>, <code>trippling</code></td>
+                <td>Phát hiện xe và người, sau đó kết hợp luật gán người vào xe.</td>
+                <td><span class="table-status status-active">Đang tích hợp</span></td>
+              </tr>
+              <tr>
+                <th scope="row">Hàng cồng kềnh</th>
+                <td>YOLO11n fine-tune</td>
+                <td><code>protrusion</code> (hiển thị là <code>bulky_cargo</code>)</td>
+                <td>Phát hiện vùng hàng nhô ra và thử gán vùng đó vào xe.</td>
+                <td><span class="table-status status-trial">Đã tích hợp · thử nghiệm</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">Nhận diện hàng cồng kềnh hiện dựa trên lớp protrusion; hệ thống chưa đo kích thước hàng hoặc tự kết luận vi phạm theo quy định.</p>
+      </div>
+
+    </section>
+
+    <section class="workspace" id="upload">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">PHÂN TÍCH HÌNH ẢNH</p>
+          <h2>Tải ảnh để nhận diện</h2>
+        </div>
+        <span class="file-limit">JPEG · PNG · GIF · TIFF · BMP · WEBP · TỐI ĐA 12 MB</span>
+      </div>
+
+      {% if error %}
+        <div class="alert" role="alert">{{ error }}</div>
+      {% endif %}
+
+      <form id="upload-form" action="{{ url_for('detect') }}" method="post" enctype="multipart/form-data">
+        <label class="drop-zone" id="drop-zone" for="image-input">
+          <input id="image-input" name="image" type="file" accept="image/*" required>
+          <span class="upload-symbol">↑</span>
+          <strong id="file-title">Kéo ảnh vào đây hoặc <span>chọn từ máy tính</span></strong>
+          <small id="file-description">Hỗ trợ ảnh raster thông dụng; GIF động sẽ phân tích khung hình đầu tiên</small>
+        </label>
+        <div class="form-actions">
+          <span class="privacy-note"><span>◆</span> Ảnh được xử lý trên máy của bạn</span>
+          <button class="button button-primary" id="submit-button" type="submit">
+            <span>Phân tích ảnh</span><span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </form>
+
+      {% if result %}
+      <section class="results" id="results" aria-live="polite">
+        <div class="section-heading result-heading">
+          <div><p class="eyebrow">HOÀN TẤT</p><h2>Kết quả nhận diện</h2></div>
+          <a class="button button-secondary" href="{{ result.download_url }}">↓ <span>Lưu ảnh kết quả</span></a>
+        </div>
+        {% if not result.summary.cargo_enabled %}
+          <div class="notice"><strong>Hàng cồng kềnh chưa được nhận diện.</strong> Chưa có checkpoint bulky_cargo đã huấn luyện.</div>
+        {% endif %}
+        <div class="image-comparison">
+          <figure class="image-panel">
+            <figcaption><span>ẢNH ĐẦU VÀO</span><span class="panel-dot"></span></figcaption>
+            <img src="{{ result.input_url }}" alt="Ảnh đầu vào đã tải lên">
+          </figure>
+          <figure class="image-panel">
+            <figcaption><span>ẢNH ĐÃ NHẬN DIỆN</span><span class="panel-dot panel-dot-green"></span></figcaption>
+            <img src="{{ result.output_url }}" alt="Ảnh sau khi nhận diện">
+          </figure>
+        </div>
+        {% if result.original_name %}
+          <p class="result-filename">Tệp: {{ result.original_name }}</p>
+        {% endif %}
+        <div class="summary-grid">
+          <article class="summary-card"><span>MŨ ĐƯỢC PHÁT HIỆN</span><strong>{{ result.summary.helmet_on }}</strong><small>đối tượng</small></article>
+          <article class="summary-card summary-danger"><span>KHÔNG ĐỘI MŨ</span><strong>{{ result.summary.no_helmet }}</strong><small>đối tượng</small></article>
+          <article class="summary-card"><span>XE MÁY / SỐ RIDER</span><strong>{{ result.summary.motorcycles }} <i>/</i> {{ result.summary.riders }}</strong><small>{{ result.summary.passenger_violations }} xe nghi chở quá số người</small></article>
+          <article class="summary-card"><span>HÀNG CỒNG KỀNH</span><strong>{{ result.summary.cargo_detections if result.summary.cargo_enabled else "—" }}</strong><small>{{ "đối tượng" if result.summary.cargo_enabled else "chưa có model" }}</small></article>
+        </div>
+        {% if result.summary.violations %}
+        <div class="detection-list">
+          <h3>Hành vi được đánh dấu</h3>
+          {% for item in result.summary.violations %}
+          <div class="detection-row">
+            <span class="detection-indicator"></span>
+            <strong>{{ {"khong_doi_mu": "Không đội mũ bảo hiểm", "cho_qua_so_nguoi": "Nghi chở quá số người", "hang_cong_kenh": "Hàng cồng kềnh"}.get(item.violation, item.violation) }}</strong>
+            {% if item.passenger_count %}<span>{{ item.passenger_count }} Rider</span>{% endif %}
+            {% if item.confidence %}<span class="confidence">{{ (item.confidence|float * 100)|round|int }}%</span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-result">Không phát hiện hành vi vi phạm theo các mô hình hiện có trong ảnh này.</div>
+        {% endif %}
+      </section>
+      {% endif %}
+    </section>
+
+    <section class="history-section" id="history">
+      <div class="section-heading">
+        <div><p class="eyebrow">LỊCH SỬ CỤC BỘ</p><h2>Ảnh đã phân tích</h2></div>
+        <span class="file-limit">LƯU TỐI ĐA 50 LẦN GẦN NHẤT</span>
+      </div>
+      {% if history %}
+        <div class="history-list">
+          {% for item in history %}
+          <article class="history-row">
+            <a class="history-open" href="{{ item.detail_url }}">
+              <img src="{{ url_for('media', result_id=item.id, kind='result') }}" alt="">
+              <span class="history-details">
+                <strong>{{ item.original_name }}</strong>
+                <small>{{ item.created_at|replace("T", " ")|replace("+00:00", " UTC") }}</small>
+              </span>
+              <span class="history-stats">
+                {{ item.summary.motorcycles }} xe ·
+                {{ item.summary.passenger_violations }} nghi chở quá người ·
+                {{ item.summary.no_helmet }} không mũ
+              </span>
+              <span class="history-arrow">→</span>
+            </a>
+            <form action="{{ url_for('delete_history_entry', result_id=item.id) }}" method="post" data-history-delete>
+              <button class="history-delete" type="submit" aria-label="Xóa lịch sử ảnh {{ item.original_name }}" title="Xóa lịch sử">×</button>
+            </form>
+          </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="history-empty">Chưa có ảnh nào được phân tích. Kết quả mới sẽ tự động lưu tại đây.</p>
+      {% endif %}
+      <p class="history-delete-error" role="alert" hidden></p>
+    </section>
+
+  </main>
+
+  <footer><span>TRAFFIC<span class="brand-accent">VISION</span></span><span>Nhận diện hành vi vi phạm giao thông</span></footer>
+  <script src="{{ url_for('static', filename='app.js', v='4') }}" defer></script>
+</body>
+</html>

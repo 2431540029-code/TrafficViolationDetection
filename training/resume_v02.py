@@ -2,7 +2,7 @@
 from ultralytics import YOLO
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 LAST_MODEL = (
     PROJECT_DIR

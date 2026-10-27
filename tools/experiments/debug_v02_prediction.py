@@ -8,7 +8,7 @@ from ultralytics import YOLO
 # 1. CAU HINH
 # ==========================================
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 MODEL_PATH = (
     BASE_DIR

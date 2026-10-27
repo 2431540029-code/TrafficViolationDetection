@@ -2,7 +2,7 @@
 from pathlib import Path
 from ultralytics import YOLO
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 model_path = (
     BASE_DIR

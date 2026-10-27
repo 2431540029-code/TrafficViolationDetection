@@ -3,7 +3,7 @@ from ultralytics import YOLO
 from pathlib import Path
 
 # Thu muc project hien tai
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 # Duong dan dataset da chuyen sang YOLO
 DATA_YAML = PROJECT_DIR / "dataset_v02_yolo" / "data.yaml"

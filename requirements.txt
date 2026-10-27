@@ -1,0 +1,8 @@
+Flask>=3.0
+customtkinter>=5.2
+numpy>=1.24
+opencv-python>=4.8
+Pillow>=10.0
+pillow-heif>=0.18
+PyYAML>=6.0
+ultralytics>=8.0
