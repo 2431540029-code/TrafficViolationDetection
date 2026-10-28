@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101923">
   <title>So sánh hiệu năng AI | Traffic Vision</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='6') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='7') }}">
 </head>
 <body class="comparison-page">
   <header class="topbar">
@@ -37,6 +37,17 @@
         trong lịch sử huấn luyện không phải kết quả test độc lập.
       </span>
     </div>
+    <div class="comparison-warning" role="note">
+      <strong>Thiết lập cargo hiện tại</strong>
+      <span>
+        Benchmark cargo dùng YOLO11n v4-only và dữ liệu được chia theo cảnh nguồn:
+        63 ảnh train, 12 ảnh validation (4 cảnh), 15 ảnh test (5 cảnh).
+        Checkpoint v3 về hàng trên xe tải được loại khỏi so sánh vì nhãn và phạm vi
+        bounding box khác. Tập test cargo từng được dùng để đánh giá checkpoint
+        trước nên đã khóa khỏi các lần so sánh mới; hiện chỉ dùng validation.
+        Chỉ so sánh các checkpoint đã fine-tune tương thích trên cùng dữ liệu.
+      </span>
+    </div>
 
     <section class="comparison-config panel-card" aria-labelledby="config-title">
       <div class="section-heading">
@@ -60,8 +71,9 @@
           <span>Tập dữ liệu đánh giá</span>
           <select id="split-select">
             <option value="val">Validation</option>
-            <option value="test">Test độc lập</option>
+            <option value="test">Test (không còn holdout)</option>
           </select>
+          <small id="split-guidance" class="field-guidance" aria-live="polite"></small>
         </label>
         <label class="config-field">
           <span>Confidence khi đánh giá và đo tốc độ</span>
@@ -191,6 +203,6 @@
   </footer>
 
   <script id="model-catalog" type="application/json">{{ catalog|tojson }}</script>
-  <script src="{{ url_for('static', filename='comparison.js', v='3') }}" defer></script>
+  <script src="{{ url_for('static', filename='comparison.js', v='7') }}" defer></script>
 </body>
 </html>

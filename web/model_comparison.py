@@ -1,4 +1,6 @@
 import csv
+import json
+import math
 import sqlite3
 import tempfile
 import time
@@ -10,6 +12,8 @@ import cv2
 import torch
 import yaml
 from ultralytics import YOLO
+
+from detection.cargo.classes import normalize_cargo_classes
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -101,16 +105,22 @@ TASKS = {
     "cargo": {
         "label": "Hàng hóa cồng kềnh",
         "dataset_id": "cargo_dataset",
-        "classes": ["protrusion"],
-        "used_classes": ["protrusion"],
+        "classes": ["bulky_cargo"],
+        "used_classes": ["bulky_cargo"],
         "confidence": 0.35,
+        "unavailable_splits": {
+            "test": (
+                "Tập test cargo đã được dùng để đánh giá checkpoint "
+                "cargo_protrusion_relabel_v1; không còn là holdout độc lập."
+            ),
+        },
         "models": {
             "cargo_yolo11n": {
                 "architecture": "yolo11n",
                 "weight_config": "CARGO_MODEL",
-                "weight_file": "runs/detect/cargo_protrusion_v3_fixed/weights/best.pt",
-                "run_dir": "runs/detect/cargo_protrusion_v3_fixed",
-                "version": "YOLO11n · checkpoint hiện tại",
+                "weight_file": "runs/detect/cargo_protrusion_relabel_v1/weights/best.pt",
+                "run_dir": "runs/detect/cargo_protrusion_relabel_v1",
+                "version": "YOLO11n · fine-tune Roboflow v2 đã gắn nhãn lại",
             },
             "cargo_yolov8s": {
                 "architecture": "yolov8s",
@@ -144,9 +154,9 @@ DATASETS = {
         "root": Path("dataset_v02_yolo"),
     },
     "cargo_dataset": {
-        "label": "Roboflow Cargo v3",
-        "yaml": Path("dataset_cargo/roboflow-v3/data.yaml"),
-        "root": Path("dataset_cargo/roboflow-v3"),
+        "label": "Roboflow Cargo v2 · gắn nhãn lại, chia theo cảnh",
+        "yaml": Path("dataset_cargo/roboflow-v5-prepared/data.yaml"),
+        "root": Path("dataset_cargo/roboflow-v5-prepared"),
     },
 }
 
@@ -171,6 +181,12 @@ def _read_dataset_definition(task_id):
         }
     else:
         raise ValueError("Tên lớp trong bộ dữ liệu không hợp lệ.")
+    if task_id == "cargo":
+        _, normalized_names = normalize_cargo_classes(configured_names)
+        configured_classes = {
+            str(name).strip().lower()
+            for name in normalized_names.values()
+        }
     expected_classes = {
         name.lower() for name in TASKS[task_id]["classes"]
     }
@@ -241,6 +257,13 @@ def _split_images_and_counts(task_id, split):
 
     object_count = 0
     expected_labels = set()
+    class_names = config.get("names", {})
+    if isinstance(class_names, dict):
+        valid_class_ids = {int(class_id) for class_id in class_names}
+    elif isinstance(class_names, list):
+        valid_class_ids = set(range(len(class_names)))
+    else:
+        raise ValueError("Tên lớp trong bộ dữ liệu không hợp lệ.")
     for image_path in images:
         relative = image_path.relative_to(root)
         parts = list(relative.parts)
@@ -254,9 +277,27 @@ def _split_images_and_counts(task_id, split):
         ):
             if not line.strip():
                 continue
-            if len(line.split()) != 5:
+            parts = line.split()
+            if len(parts) != 5:
                 raise ValueError(
                     f"Nhãn không hợp lệ trong tập {split} ở dòng {line_number}."
+                )
+            try:
+                class_id = int(parts[0])
+                coordinates = [float(value) for value in parts[1:]]
+            except ValueError as error:
+                raise ValueError(
+                    f"Nhãn không hợp lệ trong tập {split} ở dòng {line_number}."
+                ) from error
+            if (
+                class_id not in valid_class_ids
+                or not all(math.isfinite(value) and 0 <= value <= 1 for value in coordinates)
+                or coordinates[2] == 0
+                or coordinates[3] == 0
+            ):
+                raise ValueError(
+                    f"Nhãn ngoài phạm vi hoặc sai class trong tập {split} "
+                    f"ở dòng {line_number}."
                 )
             object_count += 1
     label_paths = list(label_dir.rglob("*.txt"))
@@ -266,6 +307,24 @@ def _split_images_and_counts(task_id, split):
         if not path.is_file() or path.resolve() not in expected_labels
     )
 
+    source_group_count = None
+    manifest_path = root / "split_manifest.csv"
+    if manifest_path.is_file():
+        with manifest_path.open("r", encoding="utf-8-sig", newline="") as stream:
+            manifest_rows = csv.DictReader(stream)
+            if {"source_group", "split", "image"}.issubset(
+                manifest_rows.fieldnames or ()
+            ):
+                manifest_split = "valid" if split == "val" else split
+                image_names = {path.name for path in images}
+                source_group_count = len({
+                    row["source_group"]
+                    for row in manifest_rows
+                    if row["split"] == manifest_split
+                    and row["image"] in image_names
+                    and row["source_group"]
+                })
+
     return {
         "dataset_id": TASKS[task_id]["dataset_id"],
         "dataset_label": dataset["label"],
@@ -273,6 +332,7 @@ def _split_images_and_counts(task_id, split):
         "images": images,
         "image_count": len(images),
         "object_count": object_count,
+        "source_group_count": source_group_count,
         "orphan_label_count": orphan_label_count,
         "image_dir": image_dir,
         "label_dir": label_dir,
@@ -282,7 +342,7 @@ def _split_images_and_counts(task_id, split):
     }
 
 
-def _read_training_metrics(run_dir):
+def _read_training_metrics(run_dir, validation_report=None):
     metrics_path = run_dir / "results.csv"
     if not metrics_path.is_file():
         return None
@@ -310,6 +370,21 @@ def _read_training_metrics(run_dir):
         "source": "validation",
         "status": "validation",
     })
+    if validation_report is not None and validation_report.is_file():
+        report = json.loads(validation_report.read_text(encoding="utf-8"))
+        validation = report["metrics"]["validation"]
+        report_metrics = {
+            name: float(validation[name])
+            for name in metric_names
+        }
+        if not all(
+            math.isfinite(value) and 0 <= value <= 1
+            for value in report_metrics.values()
+        ):
+            raise ValueError("Metric validation trong báo cáo không hợp lệ.")
+        result.update(report_metrics)
+        result["epoch"] = int(report["training"]["best_epoch"])
+        result["source"] = "post_training_validation"
     return result
 
 
@@ -343,6 +418,15 @@ def get_model_catalog(config):
     for task_id, definition in TASKS.items():
         split_info = {}
         for split in ("val", "test"):
+            unavailable_reason = definition.get(
+                "unavailable_splits", {}
+            ).get(split)
+            if unavailable_reason:
+                split_info[split] = {
+                    "available": False,
+                    "error": unavailable_reason,
+                }
+                continue
             try:
                 dataset_info = _split_images_and_counts(task_id, split)
             except (FileNotFoundError, ValueError) as error:
@@ -355,13 +439,18 @@ def get_model_catalog(config):
                     "available": True,
                     "image_count": dataset_info["image_count"],
                     "object_count": dataset_info["object_count"],
+                    "source_group_count": dataset_info["source_group_count"],
                     "orphan_label_count": dataset_info["orphan_label_count"],
                     "dataset_label": dataset_info["dataset_label"],
                 }
         for model_id, model_definition in definition["models"].items():
             weight_path = model_weight_path(config, task_id, model_id)
             run_dir = BASE_DIR / model_definition["run_dir"]
-            metrics = _read_training_metrics(run_dir)
+            validation_report = model_definition.get("validation_report")
+            metrics = _read_training_metrics(
+                run_dir,
+                BASE_DIR / validation_report if validation_report else None,
+            )
             checkpoint_exists = weight_path.is_file()
             ready = model_is_ready(config, task_id, model_id)
             training_incomplete = (
@@ -454,6 +543,12 @@ def evaluate_model(
         else:
             model_classes = {
                 str(name).strip().lower() for name in model_names
+            }
+        if task_id == "cargo":
+            _, normalized_names = normalize_cargo_classes(model_names)
+            model_classes = {
+                str(name).strip().lower()
+                for name in normalized_names.values()
             }
         expected_classes = {
             name.lower() for name in TASKS[task_id]["classes"]

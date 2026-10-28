@@ -66,6 +66,7 @@ def create_app(test_config=None):
         PASSENGER_MODEL=DEFAULT_PASSENGER_MODEL,
         CARGO_MODEL=DEFAULT_CARGO_MODEL,
         CONFIDENCE=0.35,
+        NO_HELMET_CONFIDENCE=0.48,
         IMAGE_PASSENGER_CONFIDENCE=0.3,
         PIPELINE=None,
         COMPARISON_RUNNER=None,
@@ -165,6 +166,10 @@ def create_app(test_config=None):
                     + ", ".join(missing_models)
                     + ". Hãy huấn luyện các mô hình này trước khi đánh giá."
                 )
+            }), 409
+        if split in definition.get("unavailable_splits", {}):
+            return jsonify({
+                "error": definition["unavailable_splits"][split]
             }), 409
 
         with app.extensions["comparison_jobs_lock"]:
@@ -468,6 +473,7 @@ def get_pipeline(app):
             image_passenger_confidence=app.config[
                 "IMAGE_PASSENGER_CONFIDENCE"
             ],
+            no_helmet_confidence=app.config["NO_HELMET_CONFIDENCE"],
         )
         app.config["PIPELINE"] = pipeline
     return pipeline

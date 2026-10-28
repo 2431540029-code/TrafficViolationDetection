@@ -1,4 +1,5 @@
 import io
+import json
 import re
 import tempfile
 import time
@@ -94,6 +95,54 @@ class WebAppTests(unittest.TestCase):
         self.assertIn(b'id="chart-precision"', response.data)
         self.assertIn(b'id="chart-latency"', response.data)
         self.assertIn(b'id="model-catalog"', response.data)
+        catalog_json = re.search(
+            rb'<script id="model-catalog" type="application/json">(.*?)</script>',
+            response.data,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(catalog_json)
+        cargo_models = [
+            model
+            for model in json.loads(catalog_json.group(1))
+            if model["task"] == "cargo"
+        ]
+        cargo_yolo11n = next(
+            model for model in cargo_models if model["id"] == "cargo_yolo11n"
+        )
+        self.assertEqual(cargo_yolo11n["classes"], ["bulky_cargo"])
+        self.assertEqual(
+            cargo_yolo11n["dataset_label"],
+            "Roboflow Cargo v2 · gắn nhãn lại, chia theo cảnh",
+        )
+        self.assertGreaterEqual(
+            cargo_yolo11n["training_metrics"]["epoch"],
+            1,
+        )
+        self.assertLessEqual(
+            cargo_yolo11n["training_metrics"]["epoch"],
+            50,
+        )
+        self.assertEqual(
+            cargo_yolo11n["training_metrics"]["source"],
+            "validation",
+        )
+        self.assertGreaterEqual(
+            cargo_yolo11n["training_metrics"]["map50_95"],
+            0,
+        )
+        self.assertLessEqual(
+            cargo_yolo11n["training_metrics"]["map50_95"],
+            1,
+        )
+        self.assertEqual(
+            cargo_yolo11n["splits"]["val"]["source_group_count"],
+            6,
+        )
+        self.assertFalse(cargo_yolo11n["splits"]["test"]["available"])
+        self.assertIn(
+            "đã được dùng",
+            cargo_yolo11n["splits"]["test"]["error"],
+        )
 
     def test_ai_comparison_rejects_missing_weights_and_invalid_model(self):
         missing_weights = self.client.post(
@@ -101,7 +150,7 @@ class WebAppTests(unittest.TestCase):
             json={
                 "task": "cargo",
                 "model_ids": ["cargo_yolo11n"],
-                "split": "test",
+                "split": "val",
                 "confidence": 0.25,
                 "repeats": 1,
             },
@@ -113,7 +162,7 @@ class WebAppTests(unittest.TestCase):
             json={
                 "task": "cargo",
                 "model_ids": ["C:\\secret\\model.pt"],
-                "split": "test",
+                "split": "val",
                 "confidence": 0.25,
                 "repeats": 1,
             },
@@ -147,6 +196,30 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("huấn luyện", response.get_json()["error"].lower())
 
+    def test_ai_comparison_blocks_previously_used_cargo_test_split(self):
+        root = Path(self.temp_dir.name)
+        weights = root / "cargo.pt"
+        weights.touch()
+        app = create_app({
+            "TESTING": True,
+            "RESULTS_DIR": root / "test-split-results",
+            "CARGO_MODEL": weights,
+        })
+
+        response = app.test_client().post(
+            "/api/ai-comparison/evaluate",
+            json={
+                "task": "cargo",
+                "model_ids": ["cargo_yolo11n"],
+                "split": "test",
+                "confidence": 0.25,
+                "repeats": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("đã được dùng", response.get_json()["error"])
+
     def test_ai_comparison_runs_in_background_and_persists_results(self):
         root = Path(self.temp_dir.name)
         weights = root / "cargo.pt"
@@ -166,7 +239,7 @@ class WebAppTests(unittest.TestCase):
                 "task_label": "Hàng hóa cồng kềnh",
                 "model_name": model_id,
                 "weight_file": model_path.name,
-                "dataset": "Roboflow Cargo v3",
+                "dataset": "Roboflow Cargo v4 · chia theo cảnh",
                 "split": split,
                 "evaluated_at": "2026-10-27T00:00:00+00:00",
                 "precision": 0.6,
@@ -205,7 +278,7 @@ class WebAppTests(unittest.TestCase):
             json={
                 "task": "cargo",
                 "model_ids": ["cargo_yolo11n", "cargo_yolov8s"],
-                "split": "test",
+                "split": "val",
                 "confidence": 0.25,
                 "repeats": 2,
             },

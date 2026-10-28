@@ -146,6 +146,7 @@ class ViolationPipeline:
         cargo_model_path: Optional[Path] = None,
         confidence: float = 0.35,
         image_passenger_confidence: float = 0.2,
+        no_helmet_confidence: float = 0.48,
     ):
         for model_path in (helmet_model_path, passenger_model_path):
             if not model_path.is_file():
@@ -157,6 +158,7 @@ class ViolationPipeline:
         self.passenger_names = model_classes(self.passenger_model)
         self.confidence = confidence
         self.image_passenger_confidence = image_passenger_confidence
+        self.no_helmet_confidence = no_helmet_confidence
         self.cargo_model = None
         self.cargo_names = {}
         self.cargo_class_ids = []
@@ -272,6 +274,18 @@ class ViolationPipeline:
             )
         return merge_overlapping_detections(detections)
 
+    def _filter_helmet_detections(self, detections):
+        return [
+            detection
+            for detection in detections
+            if detection.confidence
+            >= (
+                self.no_helmet_confidence
+                if detection.class_name == "no_helmet"
+                else self.confidence
+            )
+        ]
+
     def process_with_summary(self, frame, track=True):
         if track:
             passenger_result = self.passenger_model.track(
@@ -289,7 +303,7 @@ class ViolationPipeline:
             )
             helmet_result = self.helmet_model.predict(
                 frame,
-                conf=self.confidence,
+                conf=min(self.confidence, self.no_helmet_confidence),
                 classes=self._class_ids(
                     self.helmet_names, {"helmet", "no_helmet"}
                 ),
@@ -297,6 +311,9 @@ class ViolationPipeline:
             )[0]
             helmet_detections = read_detections(
                 helmet_result, self.helmet_names
+            )
+            helmet_detections = self._filter_helmet_detections(
+                helmet_detections
             )
         else:
             passenger_detections = self._predict_image_detections(
@@ -306,11 +323,16 @@ class ViolationPipeline:
                 {"bike", "rider", "trippling"},
                 confidence=self.image_passenger_confidence,
             )
-            helmet_detections = self._predict_image_detections(
-                self.helmet_model,
-                frame,
-                self.helmet_names,
-                {"helmet", "no_helmet"},
+            helmet_detections = self._filter_helmet_detections(
+                self._predict_image_detections(
+                    self.helmet_model,
+                    frame,
+                    self.helmet_names,
+                    {"helmet", "no_helmet"},
+                    confidence=min(
+                        self.confidence, self.no_helmet_confidence
+                    ),
+                )
             )
         cargo_detections = []
         if self.cargo_model is not None:
@@ -341,20 +363,36 @@ class ViolationPipeline:
                     if current is None or detection.confidence > current:
                         vehicles[index].trippling_confidence = detection.confidence
 
+        associated_no_helmet_detections = set()
         for detection in helmet_detections:
             if detection.class_name == "no_helmet":
                 index = associate_with_vehicle(detection, vehicles)
                 if index is not None:
+                    associated_no_helmet_detections.add(id(detection))
                     current = vehicles[index].no_helmet_confidence
                     if current is None or detection.confidence > current:
                         vehicles[index].no_helmet_confidence = detection.confidence
 
         unassigned_cargo = assign_cargo_to_vehicles(cargo_detections, vehicles)
+        unassigned_cargo_ids = {id(detection) for detection in unassigned_cargo}
+        # Cargo is a violation only when associated with a detected motorcycle.
+        cargo_detections = [
+            detection
+            for detection in cargo_detections
+            if id(detection) not in unassigned_cargo_ids
+        ]
 
         annotated = frame.copy()
         events = []
         for detection in helmet_detections:
-            self._draw_detection(annotated, detection)
+            self._draw_detection(
+                annotated,
+                detection,
+                confirmed=(
+                    detection.class_name != "no_helmet"
+                    or id(detection) in associated_no_helmet_detections
+                ),
+            )
         for detection in cargo_detections:
             self._draw_detection(annotated, detection)
 
@@ -413,16 +451,6 @@ class ViolationPipeline:
                     }
                 )
 
-        for detection in unassigned_cargo:
-            events.append(
-                {
-                    "track_id": None,
-                    "violation": "hang_cong_kenh",
-                    "passenger_count": "",
-                    "confidence": f"{detection.confidence:.4f}",
-                }
-            )
-
         if self.cargo_model is None:
             status = "HANG CONG KENH: CHUA CO MODEL"
             color = (0, 200, 255)
@@ -445,8 +473,8 @@ class ViolationPipeline:
                 for detection in helmet_detections
             ),
             "no_helmet": sum(
-                detection.class_name == "no_helmet"
-                for detection in helmet_detections
+                vehicle.no_helmet_confidence is not None
+                for vehicle in vehicles
             ),
             "motorcycles": len(vehicles),
             "riders": sum(vehicle.riders for vehicle in vehicles),
@@ -460,17 +488,23 @@ class ViolationPipeline:
         return annotated, events, summary
 
     @staticmethod
-    def _draw_detection(frame, detection):
+    def _draw_detection(frame, detection, confirmed=True):
         x1, y1, x2, y2 = detection.box
         color = (
-            (0, 0, 255)
+            (0, 165, 255)
+            if detection.class_name == "no_helmet" and not confirmed
+            else (0, 0, 255)
             if detection.class_name in {"no_helmet", "bulky_cargo"}
             else (255, 180, 0)
         )
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(
             frame,
-            f"{detection.class_name} {detection.confidence:.2f}",
+            (
+                f"{detection.class_name}? {detection.confidence:.2f}"
+                if detection.class_name == "no_helmet" and not confirmed
+                else f"{detection.class_name} {detection.confidence:.2f}"
+            ),
             (x1, max(18, y1 - 5)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,

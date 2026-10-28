@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101923">
   <title>Traffic Vision | Nhận diện vi phạm giao thông</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='5') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='7') }}">
 </head>
 <body>
   <header class="topbar">
@@ -104,15 +104,15 @@
               </tr>
               <tr>
                 <th scope="row">Hàng cồng kềnh</th>
-                <td>YOLO11n fine-tune</td>
-                <td><code>protrusion</code> (hiển thị là <code>bulky_cargo</code>)</td>
-                <td>Phát hiện vùng hàng nhô ra và thử gán vùng đó vào xe.</td>
+                <td>YOLO11n fine-tune trên Roboflow v4</td>
+                <td><code>bulky_cargo</code></td>
+                <td>Phát hiện theo hộp nhãn v4; phạm vi hộp có thể gồm xe, người và hàng.</td>
                 <td><span class="table-status status-trial">Đã tích hợp · thử nghiệm</span></td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="table-note">Nhận diện hàng cồng kềnh hiện dựa trên lớp protrusion; hệ thống chưa đo kích thước hàng hoặc tự kết luận vi phạm theo quy định.</p>
+        <p class="table-note">Model cargo v4-only được chia train/validation/test theo cảnh nguồn. Đây là thử nghiệm trên dữ liệu còn nhỏ; hệ thống chưa đo kích thước hàng hoặc tự kết luận vi phạm theo quy định.</p>
       </div>
 
     </section>
@@ -167,9 +167,10 @@
         {% if result.original_name %}
           <p class="result-filename">Tệp: {{ result.original_name }}</p>
         {% endif %}
+        <p class="table-note">Khung màu vàng kèm dấu ? là dự đoán không đội mũ chưa ghép được với xe, không được tính là vi phạm. Ngưỡng nhận diện không đội mũ hiện là 48% để hạn chế cảnh báo nhầm; mô hình vẫn có thể nhận diện sai.</p>
         <div class="summary-grid">
           <article class="summary-card"><span>MŨ ĐƯỢC PHÁT HIỆN</span><strong>{{ result.summary.helmet_on }}</strong><small>đối tượng</small></article>
-          <article class="summary-card summary-danger"><span>KHÔNG ĐỘI MŨ</span><strong>{{ result.summary.no_helmet }}</strong><small>đối tượng</small></article>
+          <article class="summary-card summary-danger"><span>XE ĐÃ GÁN KHÔNG ĐỘI MŨ</span><strong>{{ result.summary.no_helmet }}</strong><small>xe có phát hiện được gán</small></article>
           <article class="summary-card"><span>XE MÁY / SỐ RIDER</span><strong>{{ result.summary.motorcycles }} <i>/</i> {{ result.summary.riders }}</strong><small>{{ result.summary.passenger_violations }} xe nghi chở quá số người</small></article>
           <article class="summary-card"><span>HÀNG CỒNG KỀNH</span><strong>{{ result.summary.cargo_detections if result.summary.cargo_enabled else "—" }}</strong><small>{{ "đối tượng" if result.summary.cargo_enabled else "chưa có model" }}</small></article>
         </div>

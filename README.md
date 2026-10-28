@@ -93,11 +93,18 @@ Chức năng này đang được phát triển và cần đánh giá thêm trên
 
 ## 4. Chạy ứng dụng tích hợp
 
-Ứng dụng chính dùng checkpoint mũ, V02 và model cargo vừa huấn luyện tại
-`runs/detect/cargo_protrusion_v3_fixed*/weights/best.pt`. Lớp `protrusion` của
-dataset Roboflow được chuẩn hóa thành `bulky_cargo` trong ứng dụng. Nếu
-checkpoint cargo không tồn tại, ứng dụng vẫn chạy hai chức năng kia và báo rõ
-nhận diện hàng cồng kềnh đang tắt; không thay thế bằng các lớp ba lô/vali COCO.
+Ứng dụng chính dùng checkpoint mũ, V02 và ưu tiên cargo YOLO11n đã gắn nhãn lại
+tại `runs/detect/cargo_protrusion_relabel_v1/weights/best.pt` khi file này tồn
+tại. Nếu chưa có, hệ thống fallback lần lượt về
+`runs/detect/cargo_protrusion_v4_only*/weights/best.pt` rồi
+`runs/detect/cargo_protrusion_v3_fixed*/weights/best.pt`. Lớp
+`xe_cong_kenh`, `bulky_cargo` và `protrusion` được chuẩn hóa thành
+`bulky_cargo` cho pipeline hiển thị. Nếu không có checkpoint cargo nào, ứng
+dụng vẫn chạy hai chức năng kia và báo rõ nhận diện hàng cồng kềnh đang tắt;
+không thay thế bằng các lớp ba lô/vali COCO.
+Phát hiện cargo chỉ được hiển thị và tính là vi phạm khi được liên kết với một
+xe máy đã phát hiện; vùng cargo không gán được cho xe sẽ bị bỏ qua. Vì vậy, nếu
+model xe máy bỏ sót một xe thật thì cargo trên xe đó cũng có thể không được báo.
 
 Chạy video mặc định:
 
@@ -135,10 +142,11 @@ Model hiện tại được train trên `dataset_cargo/roboflow-v3/data.yaml`, c
 `protrusion` (được ứng dụng hiển thị là `bulky_cargo`). Kết quả kiểm tra trên
 test split hiện tại: precision khoảng 0.61, recall 0.37, mAP50 0.33 và mAP50-95
 0.18 trên 32 ảnh hợp lệ và 59 đối tượng có nhãn; đây là kết quả thử nghiệm,
-chưa đủ tin cậy để dùng tự động hoặc làm căn cứ xử phạt. Thư mục test hiện có
-32 ảnh cùng 32 file nhãn tương ứng. Báo cáo cũ ghi nhận một nhãn mồ côi do
-Ultralytics dùng cache nhãn đã cũ; trang so sánh sẽ làm mới cache dẫn xuất trước
-khi đánh giá lại, không chỉnh sửa ảnh hoặc file nhãn nguồn.
+chưa đủ tin cậy để dùng tự động hoặc làm căn cứ xử phạt. Audit file nguồn hiện
+tìm thấy 32 ảnh và 33 file nhãn trong test (1 nhãn không có ảnh tương ứng), cùng
+8 nhãn train không có ảnh tương ứng. Các nhãn mồ côi là vấn đề thực của cấu trúc
+dataset, không thể kết luận chỉ là cache cũ; cần xem báo cáo audit trước khi
+dùng tập dữ liệu này để huấn luyện.
 
 Trích frame từ video mới để gán nhãn thủ công (các frame trích ra chưa có label):
 
@@ -231,6 +239,114 @@ Báo cáo và danh sách false positive / bỏ sót được lưu trong
 `runs/detect/cargo_protrusion_test_evaluation`. Video đã dùng để phát triển không
 thay thế video test mới, độc lập và có nhãn thực tế.
 
+### 5.2. Kiểm tra và gộp dataset cargo v3/v4
+
+Script `detection/cargo/merge_and_train.py` kiểm tra cấu trúc, class ID, nhãn,
+ảnh hỏng, tên file, ảnh trùng SHA-256 và nhóm augmentation theo tên; sau đó mới
+có thể tạo `dataset_cargo/roboflow-combined` và train YOLO11n. Chạy audit trước,
+không gộp hoặc train:
+
+```powershell
+.\.venv\Scripts\python.exe -m detection.cargo.merge_and_train --audit-only
+```
+
+Audit thực tế ghi nhận v3 có 430/64/32 ảnh ở train/valid/test, nhưng có 8 nhãn
+train và 1 nhãn test không ghép được với ảnh; README Roboflow khai báo 535 ảnh,
+trong khi các split hiện có 526 ảnh. v4 có 90 ảnh train nhưng không có valid/test;
+đường dẫn trong YAML nguồn cũng không trỏ đến thư mục thực tế. Không tự ý xóa
+hay sửa các file nguồn này. Hãy xem danh sách cụ thể trong
+`dataset_cargo/roboflow-combined_audit.json`.
+
+Quan trọng: v3 class `protrusion` được gán trên hàng hóa của xe tải và các hộp
+mẫu bao quanh phần hàng; v4 class `xe_cong_kenh` là hàng cồng kềnh trên xe máy
+và hộp mẫu bao gồm cả xe/người/hàng. Không tự động gộp hai quy ước nhãn này.
+Chỉ sau khi kiểm tra và xác nhận chúng thực sự là cùng mục tiêu/kiểu bounding
+box mới chạy script không có `--audit-only`. Nếu các nhãn mồ côi đã được xem xét
+và xác nhận là file không dùng được do không có ảnh tương ứng, có thể cho phép
+bỏ chúng khỏi **bản sao đầu ra** bằng `--confirm-ignore-orphan-labels`; file
+nguồn vẫn được giữ nguyên. Không dùng xác nhận này nếu nhãn mồ côi cần được
+khôi phục.
+
+v4 hiện chỉ có tập train. Nếu tiếp tục gộp, validation/test sẽ đến từ v3 và
+chủ yếu thể hiện cảnh xe tải, không đủ đại diện cho bài toán xe máy chở hàng.
+Script chỉ đưa test vào đánh giá khi có xác nhận độc lập rõ ràng. Mặc định
+training dùng `yolo11n.pt`, 50 epoch, ảnh 640, batch 4, tự chọn CUDA; nếu CUDA
+hết bộ nhớ sẽ thử batch nhỏ hơn. Nếu máy không có CUDA, cần xác nhận CPU qua
+`--allow-cpu` hoặc trả lời prompt tương tác. Script không ghi đè dataset hay
+run đã tồn tại và lưu audit, cấu hình, log cùng metric thực tế.
+
+Với mục tiêu **xe máy** của đồ án, nên bỏ v3 và dùng riêng v4. Chạy kiểm tra
+v4, rồi chuẩn bị dataset theo nhóm cảnh (dùng manifest v4 đã tạo trước đó nếu
+còn hợp lệ; nếu không, chia nhóm tên nguồn với seed 42):
+
+```powershell
+.\.venv\Scripts\python.exe -m detection.cargo.merge_and_train --v4-only --audit-only
+.\.venv\Scripts\python.exe -m detection.cargo.merge_and_train --v4-only --prepare-only
+```
+
+Sau khi xem lại tập đã chuẩn bị, có thể chạy huấn luyện bằng:
+
+```powershell
+.\.venv\Scripts\python.exe -m detection.cargo.merge_and_train --v4-only --train-existing
+```
+
+Chế độ này tạo `dataset_cargo/roboflow-v4-only-prepared` và run
+`runs/detect/cargo_protrusion_v4_only`, không sử dụng các nhãn xe tải v3.
+
+Lượt huấn luyện v4-only đã chạy trên CUDA với batch 4, tối đa 50 epoch và dừng
+sớm sau 48 epoch; epoch có mAP50-95 huấn luyện tốt nhất là 33. Đánh giá lại
+checkpoint tốt nhất trên validation (12 ảnh từ 4 cảnh): Precision 0.9641,
+Recall 0.8667, mAP50 0.9763, mAP50-95 0.6152. Đây là metric trên tập nhỏ, không
+phải độ chính xác tổng quát. Không đánh giá lại test vì tập 15 ảnh/5 cảnh đã
+được dùng trong lần đánh giá v4 trước đó. Smoke test trên một ảnh validation
+cho class `bulky_cargo` confidence 0.829; đây chỉ xác nhận checkpoint chạy được,
+không phải thước đo hiệu năng. Website và trang so sánh hiện dùng checkpoint
+`cargo_protrusion_v4_only`; nếu checkpoint v4 không tồn tại, hệ thống mới fallback
+về checkpoint cargo v3 cũ.
+
+### 5.3. Dataset cargo Roboflow đã gắn nhãn lại
+
+Dataset mới trong `dataset_cargo/roboflow-v5` là **version 2** của project
+Motorcycle Bulky Cargo Detection, theo `data.yaml` và README Roboflow (xuất ngày
+28/10/2026, license CC BY 4.0). Tên thư mục `v5` không phải version do Roboflow
+công bố. Bản export có 90 ảnh train, 90 nhãn YOLO detection, một class
+`xe_cong_kenh` và 105 bounding box. Kiểm tra định dạng không phát hiện nhãn
+rỗng, class lạ, tọa độ sai hoặc ảnh thiếu nhãn; kiểm tra trực quan cho thấy
+các hộp mới chủ yếu bao quanh hàng hóa thay vì cả người và xe. Dataset không có
+ảnh âm tính (không chở hàng), nên vẫn cần bổ sung loại ảnh này để đánh giá và
+giảm false positive.
+
+`data.yaml` nguồn trỏ tới các thư mục `../train`, `../valid`, `../test` ở bên
+ngoài `roboflow-v5`, không phải các file trong bản export mới. Không sửa dữ liệu
+nguồn; bản làm việc riêng `dataset_cargo/roboflow-v5-prepared` được tạo từ
+`roboflow-v5/train` và dùng YAML có đường dẫn tuyệt đối hợp lệ. README cho biết
+90 ảnh là 3 phiên bản augmentation của 30 cảnh nguồn. Chia theo nhóm tên nguồn
+với seed 42 theo tỷ lệ 70/20/10: train 63 ảnh/21 cảnh, validation 18 ảnh/6
+cảnh, test 9 ảnh/3 cảnh. Không có nhóm cảnh hoặc ảnh trùng byte đi qua nhiều
+split. Xem `split_manifest.csv` và `README.split.txt` trong bản chuẩn bị để
+kiểm tra phân chia. Do chỉ có 30 cảnh độc lập, đặc biệt test chỉ có 3 cảnh,
+các chỉ số đánh giá có độ bất định cao và không đại diện cho hiệu năng ngoài
+dataset.
+
+Huấn luyện mới từ pretrained YOLO11n, không tiếp tục checkpoint cũ:
+
+```powershell
+.\.venv\Scripts\python.exe -m detection.cargo.train_cargo --data .\dataset_cargo\roboflow-v5-prepared\data.yaml --weights .\yolo11n.pt --epochs 50 --imgsz 640 --batch 2 --workers 2 --device 0 --name cargo_protrusion_relabel_v1
+```
+
+Batch 2 được chọn vì GPU hiện có 4 GB VRAM. Run mới được lưu tại
+`runs/detect/cargo_protrusion_relabel_v1`; script không ghi đè run đã tồn tại.
+Huấn luyện thực tế dừng sớm ở epoch 39/50; checkpoint tốt nhất ở epoch 24.
+Validation (18 ảnh/6 cảnh): Precision 0.668, Recall 0.571, mAP50 0.613,
+mAP50-95 0.247. Test độc lập đã chạy một lần (9 ảnh/3 cảnh): Precision 1.000,
+Recall 0.427, mAP50 0.504, mAP50-95 0.195 theo metric Ultralytics
+(`conf=0.001`). Ở ngưỡng liệt kê lỗi 0.25, test có 3 TP, 6 FP và 6 FN; P/R
+theo cách ghép hộp IoU 0.5 lần lượt là 0.333/0.333. Các số liệu này thấp và
+dao động mạnh vì test chỉ có 3 cảnh nguồn; chúng không phải độ chính xác tổng
+quát. Cần thêm cảnh độc lập và ảnh xe không chở hàng trước khi đánh giá triển
+khai. Báo cáo và danh sách lỗi nằm trong các thư mục validation/test riêng
+bên dưới `runs/detect/`.
+
 ## 6. Chạy website Flask
 
 ### 6.1. Trang so sánh hiệu năng AI
@@ -270,10 +386,14 @@ xử lý, suy luận và hậu xử lý, không gồm đọc ảnh từ đĩa. K
 bảng `ai_model_evaluations` của SQLite lịch sử web hiện có.
 
 Dataset được chọn bằng mã cố định phía máy chủ, không nhận đường dẫn hệ thống
-từ trình duyệt. Hiện tại có các split validation/test cho ba tác vụ. Test cargo
-có cache nhãn dẫn xuất cũ; trang làm mới cache trước khi đánh giá để tránh
-dùng đường dẫn ảnh đã bị xóa. Chỉ so sánh các model của cùng một tác vụ trên
-cùng split; không đối chiếu mAP giữa các bộ dữ liệu khác nhau.
+từ trình duyệt. Cargo hiện dùng Roboflow project version 2 đã gắn nhãn lại:
+63 ảnh train/21 cảnh, 18 ảnh validation/6 cảnh và 9 ảnh test/3 cảnh. Tập test
+này đã được dùng trong đánh giá cuối ở trên nên bị khóa khỏi các lượt so sánh
+mới. Do tập nhỏ, metric chỉ có ý nghĩa chẩn đoán trên dữ liệu này. Checkpoint
+cargo v3 về hàng trên xe tải không được đem đối chiếu vì khác miền đối tượng và
+quy ước bounding box. Các kiến trúc cargo YOLOv8s/YOLO26n chỉ bật sau khi đã
+fine-tune và xác nhận tương thích. Chỉ so sánh các model của cùng một tác vụ
+trên cùng split; không đối chiếu mAP giữa các bộ dữ liệu khác nhau.
 
 Cài thư viện (nếu môi trường hiện tại chưa có Flask):
 
@@ -297,6 +417,16 @@ phân tích toàn khung hình nhằm hạn chế phát hiện trùng. Kết qu�
 vào dữ liệu huấn luyện và có thể bỏ sót xe trong cảnh quá đông. Ngưỡng nhận diện
 xe cho ảnh tĩnh cấu hình bằng `IMAGE_PASSENGER_CONFIDENCE` trong `web/app.py`;
 video dùng ngưỡng `CONFIDENCE`.
+Phát hiện lớp `no_helmet` dùng ngưỡng riêng `NO_HELMET_CONFIDENCE=0.48`.
+Trong lần rà soát 65 ảnh test, ngưỡng này loại các hộp mũ bảo hiểm bị gán nhầm
+`no_helmet` (2 xuống 0 ở IoU 0.5), đồng thời giảm dự đoán `no_helmet` không
+khớp nhãn từ 20 xuống 10; số phát hiện đúng lớp `no_helmet` giảm từ 78 xuống
+68. Vì test set đã được dùng để chọn ngưỡng, các con số này chỉ là chẩn đoán,
+không còn là kết quả đánh giá test độc lập. Ngưỡng là đánh đổi precision/recall,
+không phải sửa lỗi toàn bộ checkpoint. Dự đoán `no_helmet` chưa ghép được với
+xe được hiển thị bằng khung vàng có dấu `?`, không tính vào số xe vi phạm; chỉ
+phát hiện gắn được với xe mới được đánh dấu đỏ. Cần bổ sung ảnh giao thông Việt
+Nam có nhãn chuẩn và đánh giá lại trên một tập độc lập để cải thiện độ tổng quát.
 
 Trang web nhận ảnh raster thông dụng dựa trên nội dung thực của tệp, không chỉ
 phần mở rộng: JPEG, PNG, GIF, TIFF, BMP, WEBP và HEIC/HEIF. Ảnh GIF động sử

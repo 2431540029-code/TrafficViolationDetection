@@ -6,6 +6,7 @@ const splitSelect = document.querySelector("#split-select");
 const confidenceInput = document.querySelector("#confidence-input");
 const confidenceValue = document.querySelector("#confidence-value");
 const repeatsInput = document.querySelector("#repeats-input");
+const splitGuidance = document.querySelector("#split-guidance");
 const modelOptions = document.querySelector("#model-options");
 const modelCount = document.querySelector("#model-count");
 const modelAvailabilityNote = document.querySelector(
@@ -78,10 +79,14 @@ function renderModelOptions() {
     const title = document.createElement("strong");
     title.textContent = model.name;
     const details = document.createElement("small");
+    const trainingMetrics = model.training_metrics;
     details.textContent =
       `${model.architecture} · ${model.classes.length} lớp (${model.classes.join(", ")}) · ` +
       `640 px · ngưỡng web ${Math.round(model.system_confidence * 100)}% · ${model.weight_file} · ` +
-      `${model.model_size_mb === null ? (model.training_incomplete ? "Có checkpoint dở dang; tiếp tục train để bật so sánh" : "Chưa fine-tune trên bộ dữ liệu này") : `${model.model_size_mb.toFixed(2)} MB`}`;
+      `${model.model_size_mb === null ? (model.training_incomplete ? "Có checkpoint dở dang; tiếp tục train để bật so sánh" : "Chưa fine-tune trên bộ dữ liệu này") : `${model.model_size_mb.toFixed(2)} MB`}` +
+      (trainingMetrics
+        ? ` · validation tốt nhất epoch ${trainingMetrics.epoch}: mAP50 ${formatPercent(trainingMetrics.map50)}, mAP50–95 ${formatPercent(trainingMetrics.map50_95)}`
+        : "");
     copy.append(title, details);
 
     const status = document.createElement("span");
@@ -127,6 +132,11 @@ function updateDatasetInfo() {
   const info = currentSplitInfo();
   const splitLabel = splitSelect.value === "test" ? "test độc lập" : "validation";
   datasetInfo.replaceChildren();
+  splitGuidance.textContent = splitSelect.value === "test"
+    ? info?.available
+      ? "Chỉ dùng test một lần sau khi đã chọn model; không dùng để tinh chỉnh hoặc chọn phiên bản."
+      : "Tập test này không được dùng cho so sánh mới vì đã được đánh giá trước đó."
+    : "Dùng validation để so sánh và chọn phiên bản; xem số liệu cùng kích thước tập và số cảnh nguồn.";
   if (!info || !info.available) {
     datasetInfo.textContent = info?.error
       ? `Không thể dùng tập ${splitLabel}: ${info.error}`
@@ -138,8 +148,11 @@ function updateDatasetInfo() {
   const strong = document.createElement("strong");
   strong.textContent = `${firstModel.dataset_label} · ${splitLabel}`;
   const description = document.createElement("span");
+  const sourceGroupNote = Number.isFinite(info.source_group_count)
+    ? `, thuộc ${info.source_group_count} cảnh nguồn`
+    : "";
   description.textContent =
-    ` — ${info.image_count} ảnh, ${info.object_count} đối tượng có nhãn.` +
+    ` — ${info.image_count} ảnh, ${info.object_count} đối tượng có nhãn${sourceGroupNote}.` +
     (splitSelect.value === "val"
       ? " Đây là validation, không phải test độc lập."
       : " Hãy kiểm tra chất lượng nhãn test trước khi diễn giải.");
@@ -510,10 +523,14 @@ function showTrainingBaseline() {
       object_count: splitData?.object_count,
       dataset: model.dataset_label,
       split: "val",
-      split_label: "validation · lịch sử huấn luyện",
-      status: metrics
-        ? `Validation huấn luyện · epoch ${metrics.epoch}`
-        : "Chưa có metric validation",
+      split_label: metrics?.source === "post_training_validation"
+        ? "validation · đánh giá checkpoint"
+        : "validation · lịch sử huấn luyện",
+      status: metrics?.source === "post_training_validation"
+        ? `Validation checkpoint tốt nhất · epoch ${metrics.epoch}`
+        : metrics
+          ? `Validation trong huấn luyện · epoch ${metrics.epoch}`
+          : "Chưa có metric validation",
     };
   });
   updateResults(rows, "validation", "Mốc validation đã ghi nhận trong huấn luyện");

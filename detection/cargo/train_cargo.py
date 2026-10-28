@@ -28,6 +28,12 @@ def main():
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch", type=int, default=4)
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Số worker đọc dữ liệu (mặc định: 0).",
+    )
+    parser.add_argument(
         "--name",
         default=DEFAULT_CARGO_RUN_NAME,
         help="Tên run trong runs/detect (mặc định là run cargo hiện tại).",
@@ -55,8 +61,16 @@ def main():
             f"Khong tim thay model YOLO: {args.weights}"
         )
 
-    if args.epochs <= 0 or args.imgsz <= 0 or args.batch <= 0:
-        parser.error("--epochs, --imgsz va --batch phai lon hon 0.")
+    if (
+        args.epochs <= 0
+        or args.imgsz <= 0
+        or args.batch <= 0
+        or args.workers < 0
+    ):
+        parser.error(
+            "--epochs, --imgsz, --batch phai lon hon 0; --workers "
+            "khong duoc am."
+        )
     run_dir = BASE_DIR / "runs" / "detect" / args.name
     if args.resume:
         expected_last_checkpoint = run_dir / "weights" / "last.pt"
@@ -109,6 +123,7 @@ def main():
     print(f"Epochs toi da: {args.epochs}")
     print(f"Image size: {args.imgsz}")
     print(f"Batch size: {args.batch}")
+    print(f"Workers: {args.workers}")
     print(f"Device: {args.device}")
     print(
         "Class dataset: "
@@ -127,7 +142,7 @@ def main():
             imgsz=args.imgsz,
             batch=args.batch,
             device=args.device,
-            workers=0,
+            workers=args.workers,
             project=str(BASE_DIR / "runs" / "detect"),
             name=args.name,
             patience=15,
