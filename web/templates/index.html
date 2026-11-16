@@ -44,21 +44,27 @@
         <span class="feature-icon helmet-icon">01</span>
         <div><h2>Mũ bảo hiểm</h2><p>Đội mũ hoặc không đội mũ</p></div>
         <span class="feature-status {% if models.helmet %}status-ready{% else %}status-off{% endif %}">
-          {{ "SẴN SÀNG" if models.helmet else "THIẾU MODEL" }}
+          {{ "CÓ CHECKPOINT" if models.helmet else "THIẾU CHECKPOINT" }}
         </span>
       </article>
       <article class="feature-card">
         <span class="feature-icon passenger-icon">02</span>
         <div><h2>Quá số người</h2><p>Phân tích Rider và Trippling</p></div>
         <span class="feature-status {% if models.passenger %}status-ready{% else %}status-off{% endif %}">
-          {{ "SẴN SÀNG" if models.passenger else "THIẾU MODEL" }}
+          {{ "CÓ CHECKPOINT" if models.passenger else "THIẾU CHECKPOINT" }}
         </span>
       </article>
       <article class="feature-card">
         <span class="feature-icon cargo-icon">03</span>
-        <div><h2>Hàng cồng kềnh</h2><p>Phát hiện theo model bulky_cargo</p></div>
+        <div><h2>Hàng cồng kềnh</h2><p>Quét toàn ảnh, ưu tiên xe máy</p></div>
         <span class="feature-status {% if models.cargo %}status-ready{% else %}status-off{% endif %}">
-          {{ "SẴN SÀNG" if models.cargo else "CHƯA CÓ MODEL" }}
+          {% if models.cargo_v6 %}
+            CÓ CHECKPOINT V6
+          {% elif models.cargo %}
+            CÓ CHECKPOINT DỰ PHÒNG
+          {% else %}
+            THIẾU CHECKPOINT
+          {% endif %}
         </span>
       </article>
     </section>
@@ -93,26 +99,55 @@
                 <td>YOLO đã huấn luyện</td>
                 <td><code>helmet</code>, <code>no_helmet</code></td>
                 <td>Phát hiện trạng thái đội hoặc không đội mũ trong ảnh.</td>
-                <td><span class="table-status status-active">Đang tích hợp</span></td>
+                <td>
+                  {% if models.helmet %}
+                    <span class="table-status status-active">Có checkpoint</span>
+                  {% else %}
+                    <span class="table-status status-off">Thiếu checkpoint</span>
+                  {% endif %}
+                </td>
               </tr>
               <tr>
                 <th scope="row">Chở quá số người</th>
                 <td>YOLO11n fine-tune</td>
                 <td><code>bike</code>, <code>rider</code>, <code>trippling</code></td>
                 <td>Phát hiện xe và người, sau đó kết hợp luật gán người vào xe.</td>
-                <td><span class="table-status status-active">Đang tích hợp</span></td>
+                <td>
+                  {% if models.passenger %}
+                    <span class="table-status status-active">Có checkpoint</span>
+                  {% else %}
+                    <span class="table-status status-off">Thiếu checkpoint</span>
+                  {% endif %}
+                </td>
               </tr>
               <tr>
                 <th scope="row">Hàng cồng kềnh</th>
-                <td>YOLO11n fine-tune trên Roboflow v4</td>
+                <td>
+                  {% if models.cargo_v6 %}
+                    YOLO11n fine-tune trên Roboflow v6
+                  {% elif models.cargo %}
+                    Checkpoint Cargo dự phòng
+                  {% else %}
+                    Chưa có checkpoint Cargo
+                  {% endif %}
+                </td>
                 <td><code>bulky_cargo</code></td>
-                <td>Phát hiện theo hộp nhãn v4; phạm vi hộp có thể gồm xe, người và hàng.</td>
-                <td><span class="table-status status-trial">Đã tích hợp · thử nghiệm</span></td>
+                <td>Dự đoán vùng hàng cồng kềnh trên toàn ảnh, không lọc theo loại xe; ưu tiên liên kết với xe máy.</td>
+                <td>
+                  {% if models.cargo_v6 %}
+                    <span class="table-status status-active">Đã tích hợp</span>
+                  {% elif models.cargo %}
+                    <span class="table-status status-trial">Đang dùng dự phòng</span>
+                  {% else %}
+                    <span class="table-status status-off">Chưa có checkpoint</span>
+                  {% endif %}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="table-note">Model cargo v4-only được chia train/validation/test theo cảnh nguồn. Đây là thử nghiệm trên dữ liệu còn nhỏ; hệ thống chưa đo kích thước hàng hoặc tự kết luận vi phạm theo quy định.</p>
+        <p class="table-note">Trạng thái checkpoint chỉ xác nhận tệp trọng số tồn tại; khả năng tải model được kiểm tra khi bắt đầu nhận diện và không đồng nghĩa với độ chính xác.</p>
+        <p class="table-note">Cargo v6 có 231 ảnh train, 22 validation và 11 test. Kết quả test mAP50 là 0,227. Model Cargo quét toàn ảnh và không lọc theo loại phương tiện; model liên kết phương tiện hiện có lớp xe máy. Vì vậy các dự đoán Cargo trên ô tô/xe khác vẫn được giữ và hiển thị, nhưng ứng dụng chưa phân loại riêng các loại xe đó.<br><strong>Độ tin cậy nhận diện còn hạn chế; kết quả cần được kiểm chứng trong điều kiện thực tế.</strong></p>
       </div>
 
     </section>
@@ -123,7 +158,7 @@
           <p class="eyebrow">PHÂN TÍCH HÌNH ẢNH</p>
           <h2>Tải ảnh để nhận diện</h2>
         </div>
-        <span class="file-limit">JPEG · PNG · GIF · TIFF · BMP · WEBP · TỐI ĐA 12 MB</span>
+        <span class="file-limit">JPEG · PNG · GIF · TIFF · BMP · WEBP · HEIC/HEIF · TỐI ĐA 12 MB</span>
       </div>
 
       {% if error %}
@@ -132,7 +167,7 @@
 
       <form id="upload-form" action="{{ url_for('detect') }}" method="post" enctype="multipart/form-data">
         <label class="drop-zone" id="drop-zone" for="image-input">
-          <input id="image-input" name="image" type="file" accept="image/*" required>
+          <input id="image-input" name="image" type="file" accept=".jpg,.jpeg,.png,.gif,.tif,.tiff,.bmp,.webp,.heic,.heif" required>
           <span class="upload-symbol">↑</span>
           <strong id="file-title">Kéo ảnh vào đây hoặc <span>chọn từ máy tính</span></strong>
           <small id="file-description">Hỗ trợ ảnh raster thông dụng; GIF động sẽ phân tích khung hình đầu tiên</small>
@@ -154,6 +189,9 @@
         {% if not result.summary.cargo_enabled %}
           <div class="notice"><strong>Hàng cồng kềnh chưa được nhận diện.</strong> Chưa có checkpoint bulky_cargo đã huấn luyện.</div>
         {% endif %}
+        {% if result.summary.get("cargo_unassigned_detections", 0) > 0 %}
+          <div class="notice"><strong>Các vùng được model dự đoán là Cargo được giữ lại trong kết quả.</strong> Model quét toàn ảnh, không lọc theo loại xe; liên kết với xe máy được bổ sung khi nhận diện được.</div>
+        {% endif %}
         <div class="image-comparison">
           <figure class="image-panel">
             <figcaption><span>ẢNH ĐẦU VÀO</span><span class="panel-dot"></span></figcaption>
@@ -167,12 +205,14 @@
         {% if result.original_name %}
           <p class="result-filename">Tệp: {{ result.original_name }}</p>
         {% endif %}
-        <p class="table-note">Khung màu vàng kèm dấu ? là dự đoán không đội mũ chưa ghép được với xe, không được tính là vi phạm. Ngưỡng nhận diện không đội mũ hiện là 48% để hạn chế cảnh báo nhầm; mô hình vẫn có thể nhận diện sai.</p>
+        <p class="table-note">Khung màu vàng kèm dấu ? là dự đoán không đội mũ chưa ghép được với xe, không được tính là vi phạm. Ngưỡng nhận diện không đội mũ hiện là {{ (config["NO_HELMET_CONFIDENCE"] * 100)|round|int }}% để hạn chế cảnh báo nhầm; mô hình vẫn có thể nhận diện sai.</p>
         <div class="summary-grid">
-          <article class="summary-card"><span>MŨ ĐƯỢC PHÁT HIỆN</span><strong>{{ result.summary.helmet_on }}</strong><small>đối tượng</small></article>
-          <article class="summary-card summary-danger"><span>XE ĐÃ GÁN KHÔNG ĐỘI MŨ</span><strong>{{ result.summary.no_helmet }}</strong><small>xe có phát hiện được gán</small></article>
-          <article class="summary-card"><span>XE MÁY / SỐ RIDER</span><strong>{{ result.summary.motorcycles }} <i>/</i> {{ result.summary.riders }}</strong><small>{{ result.summary.passenger_violations }} xe nghi chở quá số người</small></article>
-          <article class="summary-card"><span>HÀNG CỒNG KỀNH</span><strong>{{ result.summary.cargo_detections if result.summary.cargo_enabled else "—" }}</strong><small>{{ "đối tượng" if result.summary.cargo_enabled else "chưa có model" }}</small></article>
+          <article class="summary-card"><span>TỔNG BOUNDING BOX</span><strong>{{ result.summary.get("total_detections", "—") }}</strong><small>cộng ba model; một đối tượng có thể có nhiều hộp</small></article>
+          <article class="summary-card"><span>MŨ ĐƯỢC PHÁT HIỆN</span><strong>{{ result.summary.helmet_on }}</strong><small>hộp lớp helmet</small></article>
+          <article class="summary-card summary-danger"><span>XE ĐÃ GÁN KHÔNG ĐỘI MŨ</span><strong>{{ result.summary.no_helmet }}</strong><small>{{ result.summary.get("no_helmet_detections", "—") }} hộp no_helmet; {{ result.summary.get("no_helmet_unassigned_detections", "—") }} chưa ghép</small></article>
+          <article class="summary-card"><span>XE MÁY / RIDER ĐÃ GÁN</span><strong>{{ result.summary.motorcycles }} <i>/</i> {{ result.summary.riders }}</strong><small>{{ result.summary.get("riders_detected", "—") }} Rider phát hiện; {{ result.summary.passenger_violations }} xe nghi chở quá số người</small></article>
+          <article class="summary-card"><span>VÙNG CARGO DỰ ĐOÁN</span><strong>{{ result.summary.cargo_detections if result.summary.cargo_enabled else "—" }}</strong><small>{% if result.summary.cargo_enabled %}{{ result.summary.get("cargo_unassigned_detections", 0) }} dự đoán chưa liên kết xe máy; vẫn được hiển thị{% else %}chưa có model{% endif %}</small></article>
+          <article class="summary-card"><span>SỰ KIỆN VI PHẠM</span><strong>{{ result.summary.get("violation_count", "—") }}</strong><small>chỉ gồm đối tượng đủ điều kiện gán</small></article>
         </div>
         {% if result.summary.violations %}
         <div class="detection-list">

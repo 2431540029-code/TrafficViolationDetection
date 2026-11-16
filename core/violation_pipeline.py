@@ -373,14 +373,8 @@ class ViolationPipeline:
                     if current is None or detection.confidence > current:
                         vehicles[index].no_helmet_confidence = detection.confidence
 
+        # Only cargo associated with a detected motorcycle contributes a violation.
         unassigned_cargo = assign_cargo_to_vehicles(cargo_detections, vehicles)
-        unassigned_cargo_ids = {id(detection) for detection in unassigned_cargo}
-        # Cargo is a violation only when associated with a detected motorcycle.
-        cargo_detections = [
-            detection
-            for detection in cargo_detections
-            if id(detection) not in unassigned_cargo_ids
-        ]
 
         annotated = frame.copy()
         events = []
@@ -468,8 +462,22 @@ class ViolationPipeline:
             cv2.LINE_AA,
         )
         summary = {
+            "total_detections": (
+                len(helmet_detections)
+                + len(passenger_detections)
+                + len(cargo_detections)
+            ),
             "helmet_on": sum(
                 detection.class_name == "helmet"
+                for detection in helmet_detections
+            ),
+            "no_helmet_detections": sum(
+                detection.class_name == "no_helmet"
+                for detection in helmet_detections
+            ),
+            "no_helmet_unassigned_detections": sum(
+                detection.class_name == "no_helmet"
+                and id(detection) not in associated_no_helmet_detections
                 for detection in helmet_detections
             ),
             "no_helmet": sum(
@@ -478,11 +486,24 @@ class ViolationPipeline:
             ),
             "motorcycles": len(vehicles),
             "riders": sum(vehicle.riders for vehicle in vehicles),
+            "riders_detected": sum(
+                detection.class_name == "rider"
+                for detection in passenger_detections
+            ),
+            "riders_unassigned": (
+                sum(
+                    detection.class_name == "rider"
+                    for detection in passenger_detections
+                )
+                - sum(vehicle.riders for vehicle in vehicles)
+            ),
             "passenger_violations": sum(
                 is_passenger_violation(vehicle) for vehicle in vehicles
             ),
             "cargo_detections": len(cargo_detections),
+            "cargo_unassigned_detections": len(unassigned_cargo),
             "cargo_enabled": self.cargo_model is not None,
+            "violation_count": len(events),
             "violations": events,
         }
         return annotated, events, summary

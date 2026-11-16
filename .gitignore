@@ -12,7 +12,7 @@ env/
 .idea/
 
 # Training outputs
-runs/
+runs/*
 wandb/
 
 # Datasets
@@ -49,10 +49,27 @@ dataset_v02_yolo/
 dataset_v02/images/
 dataset_v02/results/
 
-# Ket qua train va checkpoint
-runs/
-
 # Python virtual environment
 .venv/
 __pycache__/
 *.pyc
+
+# Track only the three checkpoints required by the web application
+!runs/
+!runs/detect/
+runs/detect/*
+!runs/detect/helmet_model-2/
+runs/detect/helmet_model-2/*
+!runs/detect/helmet_model-2/weights/
+runs/detect/helmet_model-2/weights/*
+!runs/detect/helmet_model-2/weights/best.pt
+!runs/detect/v02_trippling/
+runs/detect/v02_trippling/*
+!runs/detect/v02_trippling/weights/
+runs/detect/v02_trippling/weights/*
+!runs/detect/v02_trippling/weights/best.pt
+!runs/detect/cargo_protrusion_v6_yolo11n/
+runs/detect/cargo_protrusion_v6_yolo11n/*
+!runs/detect/cargo_protrusion_v6_yolo11n/weights/
+runs/detect/cargo_protrusion_v6_yolo11n/weights/*
+!runs/detect/cargo_protrusion_v6_yolo11n/weights/best.pt

@@ -4,6 +4,7 @@ from pathlib import Path
 DEFAULT_CARGO_RUN_NAME = "cargo_protrusion_v4_only"
 RELABELED_CARGO_RUN_NAME = "cargo_protrusion_relabel_v1"
 LEGACY_CARGO_RUN_NAME = "cargo_protrusion_v3_fixed"
+V6_CARGO_RUN_NAME = "cargo_protrusion_v6_yolo11n"
 
 
 def latest_cargo_checkpoint(base_dir):
@@ -21,7 +22,9 @@ def latest_cargo_checkpoint(base_dir):
             return max(candidates, key=checkpoint_order)
         return None
 
-    checkpoint = newest_checkpoint(RELABELED_CARGO_RUN_NAME)
+    checkpoint = newest_checkpoint(V6_CARGO_RUN_NAME)
+    if checkpoint is None:
+        checkpoint = newest_checkpoint(RELABELED_CARGO_RUN_NAME)
     if checkpoint is None:
         checkpoint = newest_checkpoint(DEFAULT_CARGO_RUN_NAME)
     if checkpoint is None:

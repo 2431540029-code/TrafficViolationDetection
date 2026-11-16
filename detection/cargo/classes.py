@@ -2,6 +2,7 @@ CARGO_CLASS_NAMES = frozenset({
     "bulky_cargo",
     "protrusion",
     "xe_cong_kenh",
+    "hang_cong_kenh",
 })
 
 

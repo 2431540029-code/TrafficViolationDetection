@@ -1,5 +1,6 @@
 import argparse
 import csv
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -17,6 +18,34 @@ DEFAULT_PASSENGER_MODEL = (
 )
 DEFAULT_CARGO_MODEL = latest_cargo_checkpoint(BASE_DIR)
 DEFAULT_SOURCE = BASE_DIR / "videos" / "videotest.mp4"
+
+
+def resolve_output_paths(output, base_dir):
+    output_path = Path(output) if output else None
+    if output_path is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = Path(base_dir) / f"violations_detected_{timestamp}.csv"
+        suffix = 1
+        while log_path.exists():
+            log_path = (
+                Path(base_dir)
+                / f"violations_detected_{timestamp}_{suffix}.csv"
+            )
+            suffix += 1
+        return output_path, log_path
+
+    log_path = output_path.with_suffix(".csv")
+    if output_path.resolve() == log_path.resolve():
+        raise ValueError("Video output and event log must use different paths.")
+    if output_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite existing video output: {output_path}"
+        )
+    if log_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite existing event log: {log_path}"
+        )
+    return output_path, log_path
 
 
 def parse_args():
@@ -42,8 +71,7 @@ def parse_args():
         "--cargo-model",
         help=(
             "Checkpoint YOLO class bulky_cargo/protrusion. Neu bo trong, "
-            "dung checkpoint best.pt moi nhat trong "
-            "runs/detect/cargo_protrusion_v3_fixed*/weights neu ton tai."
+            "uu tien Cargo v6, sau do den cac checkpoint Cargo cu."
         ),
     )
     parser.add_argument(
@@ -95,13 +123,13 @@ def main():
         confidence=args.confidence,
     )
 
+    output_path, log_path = resolve_output_paths(args.output, BASE_DIR)
     source = parse_source(args.source)
     capture = cv2.VideoCapture(source)
     if not capture.isOpened():
         raise RuntimeError(f"Khong mo duoc nguon video: {args.source}")
 
     writer = None
-    output_path = Path(args.output) if args.output else None
     frame_index = 0
     log_file = None
     log_writer = None
@@ -136,13 +164,8 @@ def main():
                 writer.write(annotated)
 
             if log_writer is None:
-                log_path = (
-                    output_path.with_suffix(".csv")
-                    if output_path is not None
-                    else BASE_DIR / "violations_detected.csv"
-                )
                 log_path.parent.mkdir(parents=True, exist_ok=True)
-                log_file = log_path.open("w", newline="", encoding="utf-8-sig")
+                log_file = log_path.open("x", newline="", encoding="utf-8-sig")
                 log_writer = csv.DictWriter(
                     log_file,
                     fieldnames=[

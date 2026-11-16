@@ -30,6 +30,11 @@ class ViolationPipelineTests(unittest.TestCase):
         self.assertEqual(class_ids, [0])
         self.assertEqual(names, {0: "bulky_cargo"})
 
+    def test_normalizes_v6_cargo_class_for_cargo_pipeline(self):
+        class_ids, names = normalize_cargo_classes({0: "hang_cong_kenh"})
+        self.assertEqual(class_ids, [0])
+        self.assertEqual(names, {0: "bulky_cargo"})
+
     def test_rejects_unrelated_cargo_model_classes(self):
         with self.assertRaisesRegex(ValueError, "xe_cong_kenh"):
             normalize_cargo_classes({0: "backpack"})
@@ -87,12 +92,32 @@ class ViolationPipelineTests(unittest.TestCase):
                 relabelled,
             )
 
+    def test_default_checkpoint_prefers_v6_over_older_cargo_runs(self):
+        with TemporaryDirectory() as temporary_dir:
+            run_root = Path(temporary_dir) / "runs" / "detect"
+            previous_runs = [
+                run_root / "cargo_protrusion_relabel_v1" / "weights" / "best.pt",
+                run_root / "cargo_protrusion_v4_only" / "weights" / "best.pt",
+                run_root / "cargo_protrusion_v3_fixed" / "weights" / "best.pt",
+            ]
+            v6 = (
+                run_root
+                / "cargo_protrusion_v6_yolo11n"
+                / "weights"
+                / "best.pt"
+            )
+            for checkpoint in [*previous_runs, v6]:
+                checkpoint.parent.mkdir(parents=True)
+                checkpoint.write_bytes(checkpoint.parent.parent.name.encode())
+
+            self.assertEqual(latest_cargo_checkpoint(temporary_dir), v6)
+
     def test_keeps_cargo_detection_when_no_motorcycle_is_associated(self):
         cargo = Detection((120, 10, 190, 60), 0.8, "bulky_cargo")
         unassigned = assign_cargo_to_vehicles([cargo], [])
         self.assertEqual(unassigned, [cargo])
 
-    def test_unassigned_cargo_is_not_reported_or_drawn(self):
+    def test_unassigned_cargo_is_drawn_but_not_reported_as_violation(self):
         pipeline = object.__new__(ViolationPipeline)
         pipeline.helmet_model = object()
         pipeline.passenger_model = object()
@@ -131,9 +156,12 @@ class ViolationPipelineTests(unittest.TestCase):
             )
 
         self.assertEqual(events, [])
-        self.assertEqual(summary["cargo_detections"], 0)
+        self.assertEqual(summary["total_detections"], 1)
+        self.assertEqual(summary["cargo_detections"], 1)
+        self.assertEqual(summary["cargo_unassigned_detections"], 1)
+        self.assertEqual(summary["violation_count"], 0)
         self.assertEqual(summary["violations"], [])
-        self.assertTrue(np.array_equal(annotated[45, 155], [0, 0, 0]))
+        self.assertTrue(np.array_equal(annotated[10, 155], [0, 0, 255]))
 
     def test_cargo_associated_with_motorcycle_remains_a_violation(self):
         pipeline = object.__new__(ViolationPipeline)
@@ -174,6 +202,9 @@ class ViolationPipelineTests(unittest.TestCase):
             )
 
         self.assertEqual(summary["cargo_detections"], 1)
+        self.assertEqual(summary["cargo_unassigned_detections"], 0)
+        self.assertEqual(summary["total_detections"], 2)
+        self.assertEqual(summary["violation_count"], 1)
         self.assertEqual(
             [event["violation"] for event in events],
             ["hang_cong_kenh"],
@@ -235,6 +266,8 @@ class ViolationPipelineTests(unittest.TestCase):
 
         self.assertEqual(events, [])
         self.assertEqual(summary["no_helmet"], 0)
+        self.assertEqual(summary["no_helmet_detections"], 1)
+        self.assertEqual(summary["no_helmet_unassigned_detections"], 1)
         self.assertTrue(np.array_equal(annotated[5, 150], [0, 165, 255]))
 
     def test_assigns_rider_to_nearest_motorcycle(self):
@@ -249,6 +282,37 @@ class ViolationPipelineTests(unittest.TestCase):
         rider = Detection((150, 10, 170, 50), 0.9, "rider")
         vehicles = [Vehicle((10, 70, 50, 100), 1)]
         self.assertIsNone(associate_with_vehicle(rider, vehicles))
+
+    def test_rider_without_detected_bike_is_not_a_passenger_violation(self):
+        pipeline = object.__new__(ViolationPipeline)
+        pipeline.helmet_model = object()
+        pipeline.passenger_model = object()
+        pipeline.helmet_names = {0: "helmet", 1: "no_helmet"}
+        pipeline.passenger_names = {0: "bike", 1: "rider", 2: "trippling"}
+        pipeline.confidence = 0.35
+        pipeline.no_helmet_confidence = 0.48
+        pipeline.image_passenger_confidence = 0.2
+        pipeline.cargo_model = None
+        pipeline.cargo_names = {}
+        pipeline.cargo_class_ids = []
+        rider = Detection((20, 10, 40, 50), 0.9, "rider")
+
+        def fake_predict(_pipeline, model, _frame, _names, _targets, confidence=None):
+            return [rider] if model is pipeline.passenger_model else []
+
+        with patch.object(ViolationPipeline, "_predict_image_detections", fake_predict):
+            _, events, summary = pipeline.process_with_summary(
+                np.zeros((80, 80, 3), dtype=np.uint8),
+                track=False,
+            )
+
+        self.assertEqual(events, [])
+        self.assertEqual(summary["motorcycles"], 0)
+        self.assertEqual(summary["riders"], 0)
+        self.assertEqual(summary["riders_detected"], 1)
+        self.assertEqual(summary["riders_unassigned"], 1)
+        self.assertEqual(summary["total_detections"], 1)
+        self.assertEqual(summary["passenger_violations"], 0)
 
     def test_overlapping_tile_detections_are_merged_per_class(self):
         detections = [

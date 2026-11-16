@@ -27,9 +27,10 @@ from flask import (
     url_for,
 )
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 
 from core.violation_pipeline import ViolationPipeline
-from detection.cargo.paths import latest_cargo_checkpoint
+from detection.cargo.paths import V6_CARGO_RUN_NAME, latest_cargo_checkpoint
 from web.model_comparison import (
     TASKS,
     evaluate_model,
@@ -100,11 +101,7 @@ def create_app(test_config=None):
     def index():
         return render_template(
             "index.html",
-            models={
-                "helmet": Path(app.config["HELMET_MODEL"]).is_file(),
-                "passenger": Path(app.config["PASSENGER_MODEL"]).is_file(),
-                "cargo": Path(app.config["CARGO_MODEL"]).is_file(),
-            },
+            models=model_status(app),
             history=load_history(app.config["HISTORY_DB"]),
         )
 
@@ -253,13 +250,14 @@ def create_app(test_config=None):
             UnidentifiedImageError,
             OSError,
             ValueError,
+            Image.DecompressionBombWarning,
             Image.DecompressionBombError,
         ):
             return render_template(
                 "index.html",
                 error=(
                     "Không đọc được nội dung ảnh. Hãy chọn ảnh raster hợp lệ "
-                    "như JPEG, PNG, GIF, TIFF, BMP hoặc WEBP."
+                    "như JPEG, PNG, GIF, TIFF, BMP, WEBP hoặc HEIC/HEIF."
                 ),
                 models=model_status(app),
                 history=load_history(app.config["HISTORY_DB"]),
@@ -303,13 +301,16 @@ def create_app(test_config=None):
                 output_name=output_name,
                 summary=summary,
             )
-        except Exception as error:
+        except Exception:
             for saved_path in saved_paths:
                 saved_path.unlink(missing_ok=True)
             current_app.logger.exception("Image detection failed")
             return render_template(
                 "index.html",
-                error=f"Nhận diện thất bại: {error}",
+                error=(
+                    "Không thể hoàn tất nhận diện ảnh. Vui lòng kiểm tra "
+                    "cấu hình model hoặc thử lại."
+                ),
                 models=model_status(app),
                 history=load_history(app.config["HISTORY_DB"]),
             ), 500
@@ -333,7 +334,12 @@ def create_app(test_config=None):
     def history_detail(result_id):
         record = get_history_record(app.config["HISTORY_DB"], str(result_id))
         if record is None:
-            abort(404)
+            return render_template(
+                "index.html",
+                error="Không tìm thấy kết quả ảnh này trong lịch sử.",
+                models=model_status(app),
+                history=load_history(app.config["HISTORY_DB"]),
+            ), 404
         return render_template(
             "index.html",
             result={
@@ -382,11 +388,24 @@ def create_app(test_config=None):
 
     @app.get("/download/<uuid:result_id>")
     def download(result_id):
+        record = get_history_record(app.config["HISTORY_DB"], str(result_id))
+        output_path = app.config["RESULTS_DIR"] / f"{result_id}_result.jpg"
+        if record is None or not output_path.is_file():
+            return render_template(
+                "index.html",
+                error="Không tìm thấy ảnh kết quả để tải xuống.",
+                models=model_status(app),
+                history=load_history(app.config["HISTORY_DB"]),
+            ), 404
+
+        filename_stem = secure_filename(
+            Path(record["original_name"]).stem
+        ) or "anh"
         return send_from_directory(
             app.config["RESULTS_DIR"],
             f"{result_id}_result.jpg",
             as_attachment=True,
-            download_name="ket_qua_nhan_dien.jpg",
+            download_name=f"{filename_stem}_ket_qua_{result_id.hex[:8]}.jpg",
         )
 
     @app.errorhandler(RequestEntityTooLarge)
@@ -480,10 +499,25 @@ def get_pipeline(app):
 
 
 def model_status(app):
+    cargo_path = Path(app.config["CARGO_MODEL"])
+    cargo_run_name = cargo_path.parent.parent.name
+    cargo_run_suffix = (
+        cargo_run_name[len(V6_CARGO_RUN_NAME):]
+        if cargo_run_name.startswith(V6_CARGO_RUN_NAME)
+        else None
+    )
     return {
         "helmet": Path(app.config["HELMET_MODEL"]).is_file(),
         "passenger": Path(app.config["PASSENGER_MODEL"]).is_file(),
-        "cargo": Path(app.config["CARGO_MODEL"]).is_file(),
+        "cargo": cargo_path.is_file(),
+        "cargo_v6": (
+            cargo_path.is_file()
+            and cargo_run_suffix is not None
+            and (
+                not cargo_run_suffix
+                or cargo_run_suffix.isdigit()
+            )
+        ),
     }
 
 

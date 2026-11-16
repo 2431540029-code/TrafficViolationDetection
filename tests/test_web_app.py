@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -15,16 +16,28 @@ from web.app import create_app
 
 
 class FakePipeline:
+    def __init__(self):
+        self.cargo_detections = 0
+        self.cargo_unassigned_detections = 0
+        self.cargo_enabled = False
+
     def process_with_summary(self, image, track=True):
         self.track_enabled = track
         summary = {
             "helmet_on": 1,
             "no_helmet": 1,
+            "no_helmet_detections": 1,
+            "no_helmet_unassigned_detections": 0,
             "motorcycles": 1,
             "riders": 3,
+            "riders_detected": 3,
+            "riders_unassigned": 0,
             "passenger_violations": 1,
-            "cargo_detections": 0,
-            "cargo_enabled": False,
+            "cargo_detections": self.cargo_detections,
+            "cargo_unassigned_detections": self.cargo_unassigned_detections,
+            "cargo_enabled": self.cargo_enabled,
+            "total_detections": 6 + self.cargo_detections,
+            "violation_count": 1,
             "violations": [
                 {
                     "track_id": 7,
@@ -60,11 +73,22 @@ class WebAppTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Tải ảnh để nhận diện".encode(), response.data)
-        self.assertIn("THIẾU MODEL".encode(), response.data)
+        self.assertIn("THIẾU CHECKPOINT".encode(), response.data)
         self.assertIn("multipart/form-data".encode(), response.data)
         self.assertIn(b'class="history-section"', response.data)
         self.assertIn(b'class="history-empty"', response.data)
         self.assertIn(b'id="violation-models-table"', response.data)
+        self.assertIn(
+            "Độ tin cậy nhận diện còn hạn chế; kết quả cần được kiểm chứng trong điều kiện thực tế.".encode(),
+            response.data,
+        )
+        self.assertIn(
+            "Trạng thái checkpoint chỉ xác nhận tệp trọng số tồn tại".encode(),
+            response.data,
+        )
+        self.assertIn("Chưa có checkpoint Cargo".encode(), response.data)
+        self.assertNotIn("Đã tích hợp · thử nghiệm".encode(), response.data)
+        self.assertIn(b".heic,.heif", response.data)
         self.assertNotIn(b'id="model-performance-table"', response.data)
         self.assertNotIn(b'id="model-versions-table"', response.data)
         self.assertNotIn("Bảng 1".encode(), response.data)
@@ -72,6 +96,45 @@ class WebAppTests(unittest.TestCase):
         self.assertNotIn("Bảng 3".encode(), response.data)
         self.assertIn("Mô hình AI theo từng loại vi phạm".encode(), response.data)
         self.assertNotIn("biển số".encode(), response.data.lower())
+
+    def test_dashboard_marks_selected_cargo_v6_as_integrated(self):
+        root = Path(self.temp_dir.name)
+        checkpoint = (
+            root
+            / "cargo_protrusion_v6_yolo11n"
+            / "weights"
+            / "best.pt"
+        )
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.touch()
+        helmet_checkpoint = root / "helmet.pt"
+        passenger_checkpoint = root / "passenger.pt"
+        helmet_checkpoint.touch()
+        passenger_checkpoint.touch()
+        app = create_app(
+            {
+                "TESTING": True,
+                "RESULTS_DIR": root / "v6-results",
+                "HELMET_MODEL": helmet_checkpoint,
+                "PASSENGER_MODEL": passenger_checkpoint,
+                "CARGO_MODEL": checkpoint,
+            }
+        )
+
+        try:
+            response = app.test_client().get("/")
+        finally:
+            app.extensions["comparison_executor"].shutdown(wait=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("YOLO11n fine-tune trên Roboflow v6".encode(), response.data)
+        self.assertIn("Đã tích hợp".encode(), response.data)
+        self.assertIn("CÓ CHECKPOINT".encode(), response.data)
+        self.assertIn("Có checkpoint".encode(), response.data)
+        self.assertIn(
+            "Độ tin cậy nhận diện còn hạn chế; kết quả cần được kiểm chứng trong điều kiện thực tế.".encode(),
+            response.data,
+        )
 
     def test_ai_comparison_page_renders_registered_models(self):
         response = self.client.get("/ai-comparison")
@@ -318,8 +381,11 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'class="results" id="results"', response.data)
+        self.assertIn("TỔNG BOUNDING BOX".encode(), response.data)
+        self.assertIn("SỰ KIỆN VI PHẠM".encode(), response.data)
         self.assertIn(b'class="notice"', response.data)
         self.assertIn(b'class="history-row"', response.data)
+        self.assertIn("Ngưỡng nhận diện không đội mũ hiện là 48%".encode(), response.data)
         self.assertFalse(self.client.application.config["PIPELINE"].track_enabled)
         download_path = re.search(
             rb'href="(/download/[^"]+)"', response.data
@@ -355,6 +421,136 @@ class WebAppTests(unittest.TestCase):
         deleted = self.client.post(delete_path)
         self.assertEqual(deleted.status_code, 302)
         self.assertNotIn(b'class="history-row"', self.client.get("/").data)
+
+    def test_result_uses_configured_no_helmet_threshold(self):
+        self.client.application.config["NO_HELMET_CONFIDENCE"] = 0.61
+        image = np.zeros((32, 48, 3), dtype=np.uint8)
+        success, encoded = cv2.imencode(".png", image)
+        self.assertTrue(success)
+
+        response = self.client.post(
+            "/detect",
+            data={"image": (io.BytesIO(encoded.tobytes()), "threshold.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Ngưỡng nhận diện không đội mũ hiện là 61%".encode(), response.data)
+
+    def test_unassigned_cargo_is_explicitly_not_confirmed_as_a_violation(self):
+        pipeline = self.client.application.config["PIPELINE"]
+        pipeline.cargo_enabled = True
+        pipeline.cargo_detections = 1
+        pipeline.cargo_unassigned_detections = 1
+        image = np.zeros((32, 48, 3), dtype=np.uint8)
+        success, encoded = cv2.imencode(".png", image)
+        self.assertTrue(success)
+
+        response = self.client.post(
+            "/detect",
+            data={"image": (io.BytesIO(encoded.tobytes()), "cargo.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Cargo được giữ lại trong kết quả".encode(), response.data)
+        self.assertIn("Model quét toàn ảnh, không lọc theo loại xe".encode(), response.data)
+        self.assertNotIn(
+            "Chưa đủ căn cứ xác định vi phạm cho các phát hiện này".encode(),
+            response.data,
+        )
+
+    def test_empty_detection_result_shows_no_violation_message(self):
+        class NoDetectionPipeline:
+            def process_with_summary(self, image, track=True):
+                summary = {
+                    "total_detections": 0,
+                    "helmet_on": 0,
+                    "no_helmet": 0,
+                    "no_helmet_detections": 0,
+                    "no_helmet_unassigned_detections": 0,
+                    "motorcycles": 0,
+                    "riders": 0,
+                    "riders_detected": 0,
+                    "riders_unassigned": 0,
+                    "passenger_violations": 0,
+                    "cargo_detections": 0,
+                    "cargo_unassigned_detections": 0,
+                    "cargo_enabled": True,
+                    "violation_count": 0,
+                    "violations": [],
+                }
+                return image.copy(), [], summary
+
+        self.client.application.config["PIPELINE"] = NoDetectionPipeline()
+        image = np.zeros((32, 48, 3), dtype=np.uint8)
+        success, encoded = cv2.imencode(".png", image)
+        self.assertTrue(success)
+
+        response = self.client.post(
+            "/detect",
+            data={"image": (io.BytesIO(encoded.tobytes()), "empty.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'class="empty-result"', response.data)
+        self.assertIn("Không phát hiện hành vi vi phạm".encode(), response.data)
+        self.assertIn("<strong>0</strong>".encode(), response.data)
+
+    def test_repeated_upload_filename_keeps_separate_results(self):
+        result_ids = []
+        download_names = []
+        for color in ((0, 0, 255), (0, 255, 0)):
+            image = np.full((32, 48, 3), color, dtype=np.uint8)
+            success, encoded = cv2.imencode(".png", image)
+            self.assertTrue(success)
+            response = self.client.post(
+                "/detect",
+                data={"image": (io.BytesIO(encoded.tobytes()), "same-name.png")},
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(response.status_code, 200)
+            download_path = re.search(
+                rb'href="(/download/[^"]+)"', response.data
+            ).group(1).decode()
+            result_ids.append(download_path.rsplit("/", 1)[1])
+            download = self.client.get(download_path)
+            self.assertEqual(download.status_code, 200)
+            content_disposition = download.headers["Content-Disposition"]
+            download_names.append(
+                content_disposition.split("filename=", 1)[1].strip('"')
+            )
+            download.close()
+
+        self.assertNotEqual(result_ids[0], result_ids[1])
+        self.assertEqual(len(set(download_names)), 2)
+        self.assertTrue(
+            all(name.startswith("same-name_ket_qua_") for name in download_names)
+        )
+        input_files = list(
+            self.client.application.config["RESULTS_DIR"].glob("*_input.jpg")
+        )
+        result_files = list(
+            self.client.application.config["RESULTS_DIR"].glob("*_result.jpg")
+        )
+        self.assertEqual(len(input_files), 2)
+        self.assertEqual(len(result_files), 2)
+        self.assertEqual(
+            {path.stem.split("_")[0] for path in input_files},
+            set(result_ids),
+        )
+
+    def test_missing_image_result_has_a_clear_not_found_message(self):
+        missing_id = "00000000-0000-0000-0000-000000000001"
+
+        download = self.client.get(f"/download/{missing_id}")
+        history = self.client.get(f"/history/{missing_id}")
+
+        self.assertEqual(download.status_code, 404)
+        self.assertIn("Không tìm thấy ảnh kết quả".encode(), download.data)
+        self.assertEqual(history.status_code, 404)
+        self.assertIn("Không tìm thấy kết quả ảnh".encode(), history.data)
 
     def test_delete_history_supports_in_place_json_response(self):
         image = np.zeros((32, 48, 3), dtype=np.uint8)
@@ -409,6 +605,60 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Không đọc được nội dung ảnh".encode(), response.data)
+        self.assertIn("HEIC/HEIF".encode(), response.data)
+
+    def test_rejects_upload_over_file_size_limit(self):
+        response = self.client.post(
+            "/detect",
+            data=b"x" * (12 * 1024 * 1024 + 1),
+            content_type="application/octet-stream",
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("vượt quá giới hạn 12 MB".encode(), response.data)
+
+    def test_rejects_decompression_bomb_warning_as_invalid_image(self):
+        stream = io.BytesIO()
+        Image.new("RGB", (32, 48), (30, 100, 70)).save(stream, format="PNG")
+
+        with patch("web.app.Image.MAX_IMAGE_PIXELS", 10):
+            response = self.client.post(
+                "/detect",
+                data={"image": (io.BytesIO(stream.getvalue()), "large.png")},
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Không đọc được nội dung ảnh".encode(), response.data)
+
+    def test_model_load_failure_does_not_expose_internal_paths(self):
+        root = Path(self.temp_dir.name)
+        private_model_path = root / "internal" / "secret-helmet.pt"
+        app = create_app(
+            {
+                "TESTING": True,
+                "RESULTS_DIR": root / "model-error-results",
+                "HELMET_MODEL": private_model_path,
+                "PASSENGER_MODEL": root / "missing-passenger.pt",
+                "CARGO_MODEL": root / "missing-cargo.pt",
+            }
+        )
+        image = np.zeros((32, 48, 3), dtype=np.uint8)
+        success, encoded = cv2.imencode(".png", image)
+        self.assertTrue(success)
+
+        with app.test_client() as client:
+            response = client.post(
+                "/detect",
+                data={"image": (io.BytesIO(encoded.tobytes()), "road.png")},
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("Không thể hoàn tất nhận diện ảnh".encode(), response.data)
+        self.assertNotIn(str(root).encode(), response.data)
+        self.assertNotIn(b"secret-helmet.pt", response.data)
+        app.extensions["comparison_executor"].shutdown(wait=True)
 
 
 if __name__ == "__main__":

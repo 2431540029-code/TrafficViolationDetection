@@ -4,7 +4,7 @@ Hệ thống ứng dụng thị giác máy tính và trí tuệ nhân tạo đ�
 
 ## 1. Giới thiệu
 
-**Traffic Violation Detection** là dự án sử dụng Python, OpenCV và mô hình YOLO để nghiên cứu các bài toán nhận diện phương tiện, người tham gia giao thông và một số hành vi vi phạm.
+**Traffic Violation Detection** là ứng dụng Python, OpenCV, Ultralytics YOLO và Flask phục vụ nghiên cứu nhận diện một số đối tượng và hành vi giao thông. Bản demo cuối kỳ tập trung vào luồng tải và phân tích ảnh trên web; các công cụ video cũ vẫn nằm trong repository nhưng không thuộc phạm vi nghiệm thu ảnh của phiên bản này.
 
 Dự án được phát triển theo từng chức năng độc lập nhằm thuận tiện cho việc thử nghiệm, huấn luyện mô hình và đánh giá kết quả nhận diện.
 
@@ -33,7 +33,7 @@ Các thư viện cụ thể có thể thay đổi tùy chức năng và phiên b
 
 ### 3.1. Nhận diện mũ bảo hiểm
 
-Sử dụng mô hình phát hiện đối tượng để nghiên cứu việc nhận diện người đi xe máy đội hoặc không đội mũ bảo hiểm.
+Model mặc định ở `runs/detect/helmet_model-2/weights/best.pt`, gồm class `helmet` và `no_helmet`. Hộp `no_helmet` chỉ được ghi nhận là vi phạm khi gán được với xe máy; phát hiện chưa ghép được vẫn được đánh dấu riêng, không tính là vi phạm.
 
 ### 3.2. Phát hiện xe máy và đếm người
 
@@ -43,7 +43,7 @@ Việc đếm người bằng mô hình phát hiện đối tượng thông thư
 
 ### 3.3. Nhận diện xe máy chở quá số người (V02)
 
-V02 tập trung xây dựng và thử nghiệm mô hình YOLO với bộ dữ liệu giao thông có nhãn liên quan đến xe máy, người đi xe và lớp `Trippling`.
+Model mặc định ở `runs/detect/v02_trippling/weights/best.pt`, gồm class `bike`, `rider` và `trippling`. Ứng dụng đếm Rider được gán vào từng Bike; chỉ xe có hơn hai Rider được gán hoặc có class `trippling` được đánh dấu. Rider/Trippling không ghép được với Bike không tự tạo vi phạm.
 
 Quy trình phát triển gồm:
 
@@ -81,30 +81,32 @@ Các thử nghiệm OCR cần cài thêm `easyocr`:
 
 ### 3.5. Nhận diện hàng hóa cồng kềnh
 
-Nghiên cứu sử dụng thị giác máy tính để phát hiện các trường hợp vận chuyển hàng hóa cồng kềnh trên phương tiện giao thông.
+Checkpoint đang tích hợp là YOLO11n v6 tại `runs/detect/cargo_protrusion_v6_yolo11n/weights/best.pt`. Class dataset `hang_cong_kenh` được chuẩn hóa thành `bulky_cargo`. Hệ thống vẫn vẽ và thống kê phát hiện chưa ghép được với xe, nhưng chỉ phát sinh sự kiện khi gán Cargo với một xe máy đã phát hiện.
 
-Các file xử lý, kiểm tra và huấn luyện dữ liệu nằm trong `detection/cargo/`:
+Các file kiểm tra và huấn luyện dữ liệu nằm trong `detection/cargo/`:
 
 - `check_cargo_dataset.py`
 - `filter_cargo_dataset.py`
 - `cargo_violation.py`
 
-Chức năng này đang được phát triển và cần đánh giá thêm trên các tình huống giao thông thực tế.
+Độ tin cậy của Cargo v6 còn hạn chế; kết quả cần được kiểm chứng trong điều kiện thực tế. Hệ thống chưa đo kích thước/độ nhô và không thay thế việc xác minh của con người.
 
 ## 4. Chạy ứng dụng tích hợp
 
-Ứng dụng chính dùng checkpoint mũ, V02 và ưu tiên cargo YOLO11n đã gắn nhãn lại
-tại `runs/detect/cargo_protrusion_relabel_v1/weights/best.pt` khi file này tồn
-tại. Nếu chưa có, hệ thống fallback lần lượt về
-`runs/detect/cargo_protrusion_v4_only*/weights/best.pt` rồi
-`runs/detect/cargo_protrusion_v3_fixed*/weights/best.pt`. Lớp
-`xe_cong_kenh`, `bulky_cargo` và `protrusion` được chuẩn hóa thành
-`bulky_cargo` cho pipeline hiển thị. Nếu không có checkpoint cargo nào, ứng
-dụng vẫn chạy hai chức năng kia và báo rõ nhận diện hàng cồng kềnh đang tắt;
+Ứng dụng chính dùng checkpoint mũ, V02 và ưu tiên Cargo v6 tại
+`runs/detect/cargo_protrusion_v6_yolo11n/weights/best.pt`. Nếu checkpoint này
+không có, hệ thống fallback lần lượt về Cargo relabel v1, v4-only rồi
+v3-fixed. Lớp `hang_cong_kenh`, `xe_cong_kenh`, `bulky_cargo` và `protrusion`
+được chuẩn hóa thành `bulky_cargo` cho pipeline hiển thị. Nếu không có checkpoint
+Cargo nào, ứng dụng vẫn chạy hai chức năng kia và báo rõ nhận diện hàng cồng kềnh đang tắt;
 không thay thế bằng các lớp ba lô/vali COCO.
-Phát hiện cargo chỉ được hiển thị và tính là vi phạm khi được liên kết với một
-xe máy đã phát hiện; vùng cargo không gán được cho xe sẽ bị bỏ qua. Vì vậy, nếu
-model xe máy bỏ sót một xe thật thì cargo trên xe đó cũng có thể không được báo.
+Phát hiện Cargo luôn được vẽ và thống kê, kể cả khi chưa ghép được với xe máy.
+Model Cargo quét toàn ảnh và không lọc theo loại phương tiện, nên các vùng trên
+ô tô hoặc loại xe khác vẫn được giữ lại và hiển thị. Bước liên kết hiện ưu tiên
+xe máy; model liên kết không phân loại riêng ô tô/xe tải. Sự kiện vi phạm Cargo
+chỉ được tạo khi có liên kết xe máy, không tự suy diễn kết luận cho phương tiện
+khác. Nếu model xe máy bỏ sót một xe thật thì Cargo trên xe đó vẫn được hiển thị
+nhưng không có thông tin phân loại phương tiện.
 
 Chạy video mặc định:
 
@@ -117,6 +119,10 @@ Chọn video, xuất video kết quả và CSV sự kiện:
 ```powershell
 .\.venv\Scripts\python.exe main.py --source videos\videotest.mp4 --output results\annotated.mp4
 ```
+
+Mỗi lần chạy phải dùng đường dẫn video và CSV chưa tồn tại; CLI từ chối ghi đè
+kết quả đã có. Nếu không truyền `--output`, CSV được tạo với tên
+`violations_detected_<timestamp>.csv`.
 
 Chạy webcam số 0 hoặc kiểm tra một số frame không mở cửa sổ:
 
@@ -131,22 +137,56 @@ Chạy giao diện desktop cũ để chọn và nhận diện ảnh:
 .\.venv\Scripts\python.exe gui.py
 ```
 
+`gui.py` là giao diện Tkinter cũ, hiện chỉ dùng checkpoint passenger V02;
+dùng website Flask bên dưới để trình diễn pipeline tích hợp cả ba chức năng.
+
 Logic chở quá số người dùng số Rider đã gán vào một xe và class `Trippling` của
 V02; gán người/hàng vào xe dựa trên tâm hộp và vùng mở rộng quanh xe nên vẫn cần
 kiểm tra thủ công với các xe sát nhau hoặc bị che khuất. Đây là công cụ demo,
 không phải bằng chứng xử phạt tự động.
 
-## 5. Bổ sung dữ liệu hàng cồng kềnh
+### Kiến trúc và luồng xử lý ảnh
 
-Model hiện tại được train trên `dataset_cargo/roboflow-v3/data.yaml`, class
-`protrusion` (được ứng dụng hiển thị là `bulky_cargo`). Kết quả kiểm tra trên
-test split hiện tại: precision khoảng 0.61, recall 0.37, mAP50 0.33 và mAP50-95
-0.18 trên 32 ảnh hợp lệ và 59 đối tượng có nhãn; đây là kết quả thử nghiệm,
-chưa đủ tin cậy để dùng tự động hoặc làm căn cứ xử phạt. Audit file nguồn hiện
-tìm thấy 32 ảnh và 33 file nhãn trong test (1 nhãn không có ảnh tương ứng), cùng
-8 nhãn train không có ảnh tương ứng. Các nhãn mồ côi là vấn đề thực của cấu trúc
-dataset, không thể kết luận chỉ là cache cũ; cần xem báo cáo audit trước khi
-dùng tập dữ liệu này để huấn luyện.
+`app.py` ở thư mục gốc gọi `web.app.main()`. Flask tạo pipeline dùng chung; ở
+lần nhận diện đầu tiên pipeline nạp các checkpoint Helmet, Passenger và Cargo,
+sau đó giữ pipeline để tái sử dụng. `POST /detect` đọc ảnh bằng Pillow (có
+hiệu chỉnh EXIF), chạy các model và luật gán trong `core/violation_pipeline.py`,
+rồi lưu ảnh gốc/ảnh đã vẽ cùng lịch sử vào `web_results/`. Tên file kết quả
+dùng UUID để tránh va chạm tên upload.
+
+Các route ảnh chính:
+
+| Route | Chức năng |
+|---|---|
+| `GET /` | Trang chính và trạng thái các model |
+| `POST /detect` | Nhận ảnh và trả trang kết quả |
+| `GET /media/<uuid>/<kind>` | Đọc ảnh nguồn hoặc ảnh có bounding box |
+| `GET /download/<uuid>` | Tải ảnh kết quả |
+| `GET /history/<uuid>` | Mở kết quả đã lưu |
+| `POST /history/<uuid>/delete` | Xóa một mục lịch sử cùng hai ảnh thuộc mục đó |
+
+Model mặc định của web: Helmet `runs/detect/helmet_model-2/weights/best.pt`,
+Passenger `runs/detect/v02_trippling/weights/best.pt`, Cargo v6
+`runs/detect/cargo_protrusion_v6_yolo11n/weights/best.pt`. Ngưỡng web hiện là
+confidence chung `0.35`, riêng `no_helmet` `0.48`, và Passenger trên ảnh tĩnh
+`0.30`. Cargo dùng ngưỡng chung, không có threshold riêng đã được hiệu chỉnh.
+Trạng thái trên trang chính chỉ xác nhận checkpoint tồn tại trên đĩa; model được
+nạp khi nhận diện lần đầu, vì vậy nhãn này không cam kết model tải thành công
+hay có độ chính xác nhất định.
+
+## 5. Dataset và lịch sử huấn luyện hàng cồng kềnh
+
+Model Cargo được chọn cho luồng nhận diện chính là checkpoint v6 nêu ở mục 3.5.
+Dataset là `dataset_cargo/roboflow-v6/`, với 231 ảnh train/267 đối tượng,
+22 ảnh validation/23 đối tượng và 11 ảnh test/14 đối tượng; class ID 0 có tên
+`hang_cong_kenh`. YAML phụ trợ dùng khi huấn luyện là
+`dataset_cargo/roboflow-v6/data.train.yaml`. Không có train lại trong lần hoàn
+thiện phiên bản này. Các run v3, v4-only và relabel cũ bên dưới được giữ như
+lịch sử; không xóa checkpoint hay kết quả audit.
+
+Thông tin audit dữ liệu và metric v6 được tổng hợp ở
+[`REPORT_FINAL_CARGO.md`](./REPORT_FINAL_CARGO.md). Dữ liệu test nhỏ, metric
+không phải độ chính xác thực tế và không đủ căn cứ để tự động kết luận vi phạm.
 
 Trích frame từ video mới để gán nhãn thủ công (các frame trích ra chưa có label):
 
@@ -298,11 +338,9 @@ sớm sau 48 epoch; epoch có mAP50-95 huấn luyện tốt nhất là 33. Đán
 checkpoint tốt nhất trên validation (12 ảnh từ 4 cảnh): Precision 0.9641,
 Recall 0.8667, mAP50 0.9763, mAP50-95 0.6152. Đây là metric trên tập nhỏ, không
 phải độ chính xác tổng quát. Không đánh giá lại test vì tập 15 ảnh/5 cảnh đã
-được dùng trong lần đánh giá v4 trước đó. Smoke test trên một ảnh validation
-cho class `bulky_cargo` confidence 0.829; đây chỉ xác nhận checkpoint chạy được,
-không phải thước đo hiệu năng. Website và trang so sánh hiện dùng checkpoint
-`cargo_protrusion_v4_only`; nếu checkpoint v4 không tồn tại, hệ thống mới fallback
-về checkpoint cargo v3 cũ.
+được dùng trong lần đánh giá v4 trước đó. Smoke test lịch sử trên một ảnh validation cho class `bulky_cargo` confidence
+0.829; đây chỉ xác nhận checkpoint chạy được, không phải thước đo hiệu năng.
+Luồng nhận diện chính hiện ưu tiên checkpoint v6 theo mục 3.5.
 
 ### 5.3. Dataset cargo Roboflow đã gắn nhãn lại
 
@@ -347,53 +385,25 @@ quát. Cần thêm cảnh độc lập và ảnh xe không chở hàng trước 
 khai. Báo cáo và danh sách lỗi nằm trong các thư mục validation/test riêng
 bên dưới `runs/detect/`.
 
+### 5.4. Roboflow Cargo v6 đang tích hợp
+
+Checkpoint `runs/detect/cargo_protrusion_v6_yolo11n/weights/best.pt` được train
+từ YOLO11n pretrained với `imgsz=640`, batch 2, workers 0, tối đa 50 epoch,
+patience 15 và CUDA 0. Run dừng sớm ở epoch 29; epoch tốt nhất là 14. Kết quả
+đánh giá đã lưu:
+
+| Split | Ảnh / đối tượng | Precision | Recall | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|
+| Validation | 22 / 23 | 0.790 | 0.391 | 0.423 | 0.178 |
+| Test | 11 / 14 | 0.253 | 0.357 | 0.227 | 0.089 |
+
+Test có false positive và false negative; các ảnh minh họa, confusion matrix
+và file phân tích giữ tại các thư mục audit trong `runs/detect/`. Không dùng
+test để chỉnh ngưỡng; Cargo đang dùng confidence chung `0.35`. Độ tin cậy còn
+hạn chế và cần kiểm chứng thực tế. Xem [`REPORT_FINAL_CARGO.md`](./REPORT_FINAL_CARGO.md)
+để biết cách đo FP/FN, giới hạn bbox và chi tiết lần đánh giá.
+
 ## 6. Chạy website Flask
-
-### 6.1. Trang so sánh hiệu năng AI
-
-Từ trang chủ, mở **So sánh hiệu năng AI** hoặc truy cập
-`http://127.0.0.1:5000/ai-comparison`. Trang hiển thị các checkpoint đã xác
-minh theo từng bài toán và metric validation tốt nhất được ghi trong
-`runs/detect/<run>/results.csv`. Các metric này là kết quả validation trong
-quá trình huấn luyện, không phải kết quả test độc lập.
-
-Trang so sánh ba kiến trúc có trọng số trong dự án: YOLOv8s, YOLO11n và
-YOLO26n. Lưu ý project có `yolov8s.pt`, không phải YOLOv8n. Các file pretrained
-ban đầu nhận diện lớp COCO nên không thể đem so metric trực tiếp với các lớp
-vi phạm; YOLOv8s và YOLO26n cần được fine-tune riêng trên từng dataset trước.
-YOLOv8 nhận diện biển số trong một thử nghiệm riêng không thuộc so sánh này vì
-khác tác vụ và bộ dữ liệu.
-
-Fine-tune hai kiến trúc mới trên cả ba tác vụ (GPU CUDA mặc định, batch 2):
-
-```powershell
-.\.venv\Scripts\python.exe -m training.train_comparison_models --task all --architecture all --device 0
-```
-
-Script dùng cùng `imgsz=640`, seed và batch cho các run mới; số epoch tối đa
-lần lượt là 50 (mũ bảo hiểm), 30 (V02) và 20 (cargo), theo cấu hình tác vụ hiện
-có. Checkpoint YOLO11n hiện tại được giữ nguyên nên cấu hình huấn luyện lịch sử
-có thể khác; nếu cần so sánh khoa học chặt chẽ hơn, hãy huấn luyện lại cả ba
-kiến trúc với cùng cấu hình. Có thể chạy riêng bằng `--task helmet|passenger|cargo`
-và `--architecture yolov8s|yolo26n`. Nếu bị gián đoạn, chạy lại lệnh sẽ tiếp
-tục từ `last.pt`; run đã hoàn thành không bị ghi đè.
-
-Sau khi các checkpoint đã có, chọn một tác vụ, validation hoặc test, confidence
-và số lượt đo (1–5), sau đó nhấn **Chạy so sánh**. Có thể chọn tối đa ba model
-cùng tác vụ; checkpoint chưa fine-tune sẽ bị vô hiệu hóa. Backend chạy Ultralytics
-trong tiến trình nền, dùng cùng thiết bị và `imgsz=640`; thời gian đo gồm tiền
-xử lý, suy luận và hậu xử lý, không gồm đọc ảnh từ đĩa. Kết quả được lưu trong
-bảng `ai_model_evaluations` của SQLite lịch sử web hiện có.
-
-Dataset được chọn bằng mã cố định phía máy chủ, không nhận đường dẫn hệ thống
-từ trình duyệt. Cargo hiện dùng Roboflow project version 2 đã gắn nhãn lại:
-63 ảnh train/21 cảnh, 18 ảnh validation/6 cảnh và 9 ảnh test/3 cảnh. Tập test
-này đã được dùng trong đánh giá cuối ở trên nên bị khóa khỏi các lượt so sánh
-mới. Do tập nhỏ, metric chỉ có ý nghĩa chẩn đoán trên dữ liệu này. Checkpoint
-cargo v3 về hàng trên xe tải không được đem đối chiếu vì khác miền đối tượng và
-quy ước bounding box. Các kiến trúc cargo YOLOv8s/YOLO26n chỉ bật sau khi đã
-fine-tune và xác nhận tương thích. Chỉ so sánh các model của cùng một tác vụ
-trên cùng split; không đối chiếu mAP giữa các bộ dữ liệu khác nhau.
 
 Cài thư viện (nếu môi trường hiện tại chưa có Flask):
 
@@ -433,12 +443,38 @@ phần mở rộng: JPEG, PNG, GIF, TIFF, BMP, WEBP và HEIC/HEIF. Ảnh GIF đ�
 dụng khung đầu tiên. SVG/PDF không phải ảnh raster. Mỗi lần
 phân tích được ghi vào `web_results/history.sqlite3`; trang lịch sử mở lại kết
 quả hoặc xóa bản ghi cùng ảnh đã lưu. Lịch sử hiển thị 50 lần gần nhất.
+Ảnh tải xuống có tên dựa trên tên upload kèm một phần UUID để tránh trùng tên;
+liên kết lịch sử hoặc ảnh kết quả không còn tồn tại sẽ trả thông báo 404 rõ ràng.
 
 Mặc định website chỉ lắng nghe trên máy hiện tại (`127.0.0.1`), không bật debug
-server và không yêu cầu tải ảnh lên dịch vụ bên ngoài. Model được nạp khi có yêu
-cầu nhận diện đầu tiên. Cần có checkpoint mũ và V02 trong thư mục `runs/detect`
-như cấu hình trong `web/app.py`. Khi chưa có checkpoint cargo, website sẽ báo rõ
-rằng hành vi hàng cồng kềnh chưa khả dụng.
+server và không yêu cầu tải ảnh lên dịch vụ bên ngoài. Pipeline và model được
+nạp khi có yêu cầu nhận diện đầu tiên rồi dùng lại. Cần có checkpoint mũ và V02
+trong thư mục `runs/detect` như cấu hình trong `web/app.py`; Cargo được chọn theo
+thứ tự ưu tiên nêu trên. Model Cargo quét toàn ảnh, không loại vùng phát hiện
+trên ô tô hay phương tiện khác; các bbox được giữ và thống kê, còn bước liên kết
+xe máy là một thông tin bổ sung. Website nhận ảnh tĩnh;
+video được xử lý bằng CLI `main.py`.
+
+### 6.1. Nghiệm thu phiên bản ảnh
+
+Lệnh kiểm thử đầy đủ:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Upload giới hạn 12 MB; web kiểm tra nội dung ảnh thay vì chỉ tin phần mở rộng.
+Ảnh lỗi hoặc vượt giới hạn nhận thông báo dễ hiểu; ảnh đầu vào và ảnh kết quả
+được lưu riêng theo UUID, vì vậy upload trùng tên không ghi đè lượt trước.
+Tổng bounding box, số phát hiện từng chức năng, xe/Rider đã gán, Cargo chưa
+ghép và số sự kiện lấy từ kết quả pipeline; tổng bbox không phải số đối tượng
+duy nhất vì các model có thể cùng phát hiện một thực thể.
+
+Lần nghiệm thu ảnh cuối kỳ kiểm tra upload JPEG từ các split Helmet, Passenger
+và Cargo; web tạo được ảnh đầu vào/kết quả cùng link tải. Đây là smoke test tích
+hợp, không phải đánh giá độ chính xác. Không chạy video trong nghiệm thu này.
+Độ tin cậy Cargo v6 còn hạn chế; các kết quả và ảnh minh họa được ghi riêng ở
+[`REPORT_FINAL_CARGO.md`](./REPORT_FINAL_CARGO.md).
 
 ## 7. Cấu trúc dự án
 
@@ -472,14 +508,16 @@ Các lệnh huấn luyện và công cụ trong package chạy từ thư mục g
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Các thư mục dữ liệu, trọng số huấn luyện và kết quả chạy có thể không được đưa
-lên GitHub do dung lượng lớn.
+Dataset và kết quả huấn luyện cũ không được đưa lên GitHub. Repository chỉ theo
+dõi ba checkpoint cần cho ứng dụng web; các file `last.pt` và checkpoint thí
+nghiệm khác vẫn bị loại trừ.
 
 ## 8. Cài đặt môi trường
 
 ### Yêu cầu
 
-- Python tương thích với các phiên bản thư viện đang sử dụng.
+- Python 3.13.14 trong môi trường đã nghiệm thu; máy khác cần chọn phiên bản
+  tương thích với PyTorch và Ultralytics trong `requirements.txt`.
 - Git.
 - PyCharm hoặc một trình soạn thảo Python tương đương.
 
@@ -509,6 +547,43 @@ pip install -r requirements.txt
 ```
 
 PyTorch thường được cài đặt như một phần phụ thuộc của Ultralytics. Nếu cần cấu hình riêng cho CPU hoặc GPU, hãy chọn gói tương thích với máy tính và môi trường hiện tại.
+
+### Bước 4: Kiểm tra checkpoint ứng dụng
+
+Ba checkpoint dưới đây được lưu cùng repository tại đúng đường dẫn mà web sử
+dụng:
+
+| Chức năng | Đường dẫn |
+|---|---|
+| Mũ bảo hiểm | `runs/detect/helmet_model-2/weights/best.pt` |
+| Chở quá số người | `runs/detect/v02_trippling/weights/best.pt` |
+| Hàng cồng kềnh | `runs/detect/cargo_protrusion_v6_yolo11n/weights/best.pt` |
+
+Kiểm tra các file sau khi clone trên Windows PowerShell:
+
+```powershell
+Test-Path .\runs\detect\helmet_model-2\weights\best.pt
+Test-Path .\runs\detect\v02_trippling\weights\best.pt
+Test-Path .\runs\detect\cargo_protrusion_v6_yolo11n\weights\best.pt
+```
+
+Ba lệnh cần trả về `True`. Không cần tải checkpoint riêng; dataset và các
+checkpoint huấn luyện khác không nằm trong bản clone.
+
+### Bước 5: Chạy thử bằng ảnh tĩnh
+
+Khởi động web bằng `python app.py`, mở `http://127.0.0.1:5000` và tải lần lượt
+các ảnh JPG/JPEG hoặc PNG phù hợp:
+
+| Chức năng cần kiểm tra | Ảnh nên chọn | Kết quả cần xem |
+|---|---|---|
+| Mũ bảo hiểm | Ảnh giao thông có người đội và/hoặc không đội mũ | Hộp `helmet`/`no_helmet`; chỉ phát hiện không đội mũ được ghép với xe mới được tính là vi phạm |
+| Chở quá số người | Ảnh có xe máy và người ngồi trên xe | Hộp Bike/Rider/Trippling, số Rider được ghép và trạng thái vi phạm; không kết luận nếu thiếu thông tin ghép |
+| Hàng cồng kềnh | Ảnh xe chở hàng, gồm xe máy hoặc phương tiện khác | Hộp Cargo được hiển thị trên toàn ảnh; sự kiện vi phạm chỉ được tạo khi có liên kết với xe máy |
+
+Mỗi lượt upload tạo kết quả riêng. Dùng ảnh có sẵn của bạn; dataset không được
+đóng gói trong repository. Kết quả phụ thuộc vào góc chụp, độ che khuất và chất
+lượng model; Cargo v6 có độ tin cậy còn hạn chế, nên cần kiểm chứng bằng mắt.
 
 ## 9. Huấn luyện mô hình V02
 
